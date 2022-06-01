@@ -18,39 +18,38 @@ from .utils import select_device
 
 
 class Transformer(Module):
-    """A complete Transformer module, with embedding and logits layers.
-    TODO custom input / output modules
-    TODO custom predict func ?
-    TODO clean docstring
-
-    :param num_encoder_layers: number of encoder layers, set 0 for no encoder
-    :param num_decoder_layers: number of decoder layers, set 0 for no decoder
-    :param num_classes: number of classes, vocabulary size
-    :param d_model: model dimension (embedding dim)
-    :param nhead: number of attention heads
-    :param dim_feedforward: dimension of the feedforward layers (default: 2048)
-    :param dropout: dropout value (default: 0.1)
-    :param max_seq_len: maximum sequence length to be passed to both encoder and decoder. This is used to build the
-                        rotary positional encoding module (default: 2048)
-    :param dtype:
-    :param layer_norm_eps: the eps value in layer normalization components (default=1e-5)
-    :param device: device onto the model must be put (default: cuda:0 if cuda.is_available() else cpu)
-    :param padding_token: specifies a padding token idx, si that it doesn't contribute to the gradients.
-                        The Embedding layer at index padding_token will therefore not be updated during training.
-                        (default: None)
-    :param causal_enc: if set True, a causal attention mask will automatically be applied in the encoder
-                        (default: False)
-    :param causal_dec: if set True, a causal attention mask will automatically be applied in the decoder
-                        (default: False)
-    :param custom_encoder: custom encoder module, will override other params
-    :param custom_decoder: custom decoder module, will override other params
-    """
 
     def __init__(self, num_encoder_layers: int, num_decoder_layers: int, num_classes: int, d_model: int, nhead: int,
-                 dim_feedforward: int, dropout: float = 0.1, max_seq_len: int = 2048, dtype=None,
+                 dim_feedforward: int, dropout: float = 0.1, max_seq_len: int = None, dtype=None,
                  activation: str = 'gelu', layer_norm_eps: float = 1e-5, device: device_ = None,
                  padding_token: int = None, causal_enc: bool = False, causal_dec: bool = False,
                  custom_encoder: Module = None, custom_decoder: Module = None):
+        r"""A complete Transformer module, with embedding and logits layers.
+        TODO custom input / output modules
+        TODO custom predict func ?
+
+        :param num_encoder_layers: number of encoder layers, set 0 for no encoder
+        :param num_decoder_layers: number of decoder layers, set 0 for no decoder
+        :param num_classes: number of classes, vocabulary size
+        :param d_model: model dimension (embedding dim)
+        :param nhead: number of attention heads
+        :param dim_feedforward: dimension of the feedforward layers (default: 2048)
+        :param dropout: dropout value (default: 0.1)
+        :param max_seq_len: maximum sequence length to be passed to both encoder and decoder. This is used to build the
+                            rotary positional encoding module. Give None for no Rotary (relative) PE. (default: None)
+        :param dtype:
+        :param layer_norm_eps: the eps value in layer normalization components (default=1e-5)
+        :param device: device onto the model must be put (default: cuda:0 if cuda.is_available() else cpu)
+        :param padding_token: specifies a padding token idx, si that it doesn't contribute to the gradients.
+                            The Embedding layer at index padding_token will therefore not be updated during training.
+                            (default: None)
+        :param causal_enc: if set True, a causal attention mask will automatically be applied in the encoder
+                            (default: False)
+        :param causal_dec: if set True, a causal attention mask will automatically be applied in the decoder
+                            (default: False)
+        :param custom_encoder: custom encoder module, will override other params
+        :param custom_decoder: custom decoder module, will override other params
+        """
         super().__init__()
 
         # ATTRIBUTES
@@ -66,7 +65,7 @@ class Transformer(Module):
 
         # MODULES
         self.embedder = Embedding(num_classes, d_model, padding_token)
-        pos_enc = RotaryPositionalEncoding(head_dim // 2, (0, max_seq_len))
+        pos_enc = RotaryPositionalEncoding(head_dim // 2, (0, max_seq_len)) if max_seq_len is not None else None
 
         if custom_encoder is not None:
             self.encoder = custom_encoder
@@ -77,8 +76,9 @@ class Transformer(Module):
                                                         layer_norm_eps, device, dtype)
                 encoder_norm = LayerNorm(d_model, eps=layer_norm_eps, device=device, dtype=dtype)
                 self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
-                for layer in self.encoder.layers:
-                    layer.self_attn.pos_enc = pos_enc
+                if pos_enc is not None:
+                    for layer in self.encoder.layers:
+                        layer.self_attn.pos_enc = pos_enc
 
         if custom_decoder is not None:
             self.decoder = custom_decoder
@@ -89,9 +89,10 @@ class Transformer(Module):
                                                         layer_norm_eps, device, dtype)
                 decoder_norm = LayerNorm(d_model, eps=layer_norm_eps, device=device, dtype=dtype)
                 self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm)
-                for layer in self.decoder.layers:
-                    layer.self_attn.pos_enc = pos_enc
-                    layer.cross_attn.pos_enc = pos_enc
+                if pos_enc is not None:
+                    for layer in self.decoder.layers:
+                        layer.self_attn.pos_enc = pos_enc
+                        layer.cross_attn.pos_enc = pos_enc
 
         self.to_logits = Linear(in_features=d_model, out_features=num_classes)
 
@@ -106,7 +107,7 @@ class Transformer(Module):
                 mem_attn_mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None, tgt_key_padding_mask: Optional[Tensor] = None,
                 mem_key_padding_mask: Optional[Tensor] = None, auto_padding_mask: bool = False):
-        """Following the model architecture, it will pass source and target sequences through the encoder
+        r"""Following the model architecture, it will pass source and target sequences through the encoder
         and decoder layers. In the case of:
             - encoder + decoder (seq2seq) --> you need to pass src and tgt arguments
             - encoder only --> just pass the src
@@ -180,21 +181,22 @@ class Transformer(Module):
 
 
 class TransformerEncoderLayer(Module):
-    r"""A Transformer encoder layer, using self-attention on input (source) sequence.
 
-    :param d_model: model dimension (embedding dim)
-    :param nhead: number of attention heads
-    :param dim_feedforward: dimension of the feedforward layers (default: 2048)
-    :param dropout: dropout value (default: 0.1)
-    :param activation: activation function, must be gelu or relu (default: gelu)
-    :param layer_norm_eps: the eps value in layer normalization components (default=1e-5)
-    :param device: device onto the model must be put (default: None)
-    :param dtype:
-    :param custom_self_attn_layer: custom self-attention layer (default: None)
-    """
     def __init__(self, d_model: int, nhead: int, dim_feedforward: int = 2048, dropout: float = 0.1,
                  activation: str = "gelu", layer_norm_eps: float = 1e-5, device: device_ = None, dtype=None,
                  custom_self_attn_layer: Attention = None) -> None:
+        r"""A Transformer encoder layer, using self-attention on input (source) sequence.
+
+        :param d_model: model dimension (embedding dim)
+        :param nhead: number of attention heads
+        :param dim_feedforward: dimension of the feedforward layers (default: 2048)
+        :param dropout: dropout value (default: 0.1)
+        :param activation: activation function, must be gelu or relu (default: gelu)
+        :param layer_norm_eps: the eps value in layer normalization components (default=1e-5)
+        :param device: device onto the model must be put (default: None)
+        :param dtype:
+        :param custom_self_attn_layer: custom self-attention layer (default: None)
+        """
         factory_kwargs = {'device': device, 'dtype': dtype}
         super(TransformerEncoderLayer, self).__init__()
         # Attention
@@ -234,25 +236,25 @@ class TransformerEncoderLayer(Module):
 
 
 class TransformerDecoderLayer(Module):
-    r"""A Transformer decoder layer, with both self-attention and cross-attention.
-    A decoder layer receives in input a target sequence, and a hidden state (memory) sequence from
-    an Encoder.
-
-    :param d_model: model dimension (embedding dim)
-    :param nhead: number of attention heads
-    :param dim_feedforward: dimension of the feedforward layers (default: 2048)
-    :param dropout: dropout value (default: 0.1)
-    :param activation: activation function, must be gelu or relu (default: gelu)
-    :param layer_norm_eps: the eps value in layer normalization components (default=1e-5)
-    :param device: device onto the model must be put (default: None)
-    :param dtype:
-    :param custom_self_attn_layer: custom self-attention layer (default: None)
-    :param custom_cross_attn_layer: custom cross-attention (encoder-decoder) layer (default: None)
-    """
 
     def __init__(self, d_model: int, nhead: int, dim_feedforward: int = 2048, dropout: float = 0.1,
                  activation: str = "gelu", layer_norm_eps: float = 1e-5, device: device_ = None, dtype=None,
                  custom_self_attn_layer: Attention = None, custom_cross_attn_layer: Attention = None) -> None:
+        r"""A Transformer decoder layer, with both self-attention and cross-attention.
+        A decoder layer receives in input a target sequence, and a hidden state (memory) sequence from
+        an Encoder.
+
+        :param d_model: model dimension (embedding dim)
+        :param nhead: number of attention heads
+        :param dim_feedforward: dimension of the feedforward layers (default: 2048)
+        :param dropout: dropout value (default: 0.1)
+        :param activation: activation function, must be gelu or relu (default: gelu)
+        :param layer_norm_eps: the eps value in layer normalization components (default=1e-5)
+        :param device: device onto the model must be put (default: None)
+        :param dtype:
+        :param custom_self_attn_layer: custom self-attention layer (default: None)
+        :param custom_cross_attn_layer: custom cross-attention (encoder-decoder) layer (default: None)
+        """
         factory_kwargs = {'device': device, 'dtype': dtype}
         super(TransformerDecoderLayer, self).__init__()
 
@@ -304,19 +306,19 @@ class TransformerDecoderLayer(Module):
 
 
 class TransformerEncoder(Module):
-    r"""TransformerEncoder, a stack of N encoder layers
-    This module will stack num_layers copies of encoder_layer.
-    It can be used with a TransformerDecoder to form a seq2seq model, or as is to
-    form a model like BERT or GPT, trained to solve natural language understanding or
-    natural language generation tasks for instance.
-
-    :param encoder_layer: the base encoder layer
-    :param num_layers: number of layers
-    :param norm: layer normalization module (default: None)
-    """
     __constants__ = ['norm']
 
     def __init__(self, encoder_layer: TransformerEncoderLayer, num_layers: int, norm: Optional[Module] = None):
+        r"""TransformerEncoder, a stack of N encoder layers
+        This module will stack num_layers copies of encoder_layer.
+        It can be used with a TransformerDecoder to form a seq2seq model, or as is to
+        form a model like BERT or GPT, trained to solve natural language understanding or
+        natural language generation tasks for instance.
+
+        :param encoder_layer: the base encoder layer
+        :param num_layers: number of layers
+        :param norm: layer normalization module (default: None)
+        """
         super(TransformerEncoder, self).__init__()
         self.layers = ModuleList([deepcopy(encoder_layer) for _ in range(num_layers)])
         self.norm = norm
@@ -342,18 +344,18 @@ class TransformerEncoder(Module):
 
 
 class TransformerDecoder(Module):
-    r"""TransformerDecoder, a stack of N decoder layers.
-    This module will stack num_layers copies of decoder_layer.
-    It is usually used with a TransformerEncoder to form a seq2seq model architecture,
-    to solve neural machine translation or question answering tasks for instance.
-
-    :param decoder_layer: the base decoder layer
-    :param num_layers: number of layers
-    :param norm: layer normalization module (default: None)
-    """
     __constants__ = ['norm']
 
     def __init__(self, decoder_layer: TransformerDecoderLayer, num_layers: int, norm: Optional[Module] = None):
+        r"""TransformerDecoder, a stack of N decoder layers.
+        This module will stack num_layers copies of decoder_layer.
+        It is usually used with a TransformerEncoder to form a seq2seq model architecture,
+        to solve neural machine translation or question answering tasks for instance.
+
+        :param decoder_layer: the base decoder layer
+        :param num_layers: number of layers
+        :param norm: layer normalization module (default: None)
+        """
         super(TransformerDecoder, self).__init__()
         self.layers = ModuleList([deepcopy(decoder_layer) for _ in range(num_layers)])
         self.norm = norm

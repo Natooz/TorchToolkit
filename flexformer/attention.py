@@ -25,18 +25,18 @@ from .pos_encoding import PositionalEncoding
 class Attention(nn.Module):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
                  vdim: int = None, device: torch.device = None, dtype=None, merge_batch_head_dim: bool = True) -> None:
-        """Basic Attention class, framework to scaled dot product attention and linear attentions (elu/favor+)
+        r"""Basic Attention class, framework to scaled dot product attention and linear attentions (elu/favor+)
 
-        :param embed_dim: embedding dimension (from target sequence)
-        :param num_heads: number of heads (head dim will be embed_dim / num_heads)
-        :param dropout: dropout (during training)
-        :param bias: use biases in linear layers
-        :param kdim: dimension of keys (default None for embed_dim)
-        :param vdim: dimension of values (default None for embed_dim)
-        :param device: device to run (default None)
+        :param embed_dim: embedding / model dimension
+        :param num_heads: number of attention heads
+        :param dropout: dropout value (default: 0.)
+        :param bias: use biases in linear layers (default: True)
+        :param kdim: dimension of keys, give None for embed_dim (default: None)
+        :param vdim: dimension of values, give None for embed_dim (default: None)
+        :param device: device to run (default: None)
         :param dtype: dtype (default None)
-        :param merge_batch_head_dim: will merge head and batch dimensions for computations,
-                                    set False for linear attention (default True)
+        :param merge_batch_head_dim: will merge head and batch dimensions for faster computation,
+                                    incompatible with linear attention (will be set to False) (default: True)
         """
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
@@ -86,11 +86,11 @@ class Attention(nn.Module):
             nn.init.constant_(self.out_proj.bias, 0.)
 
     def _compute_qkv(self, target: Tensor, source: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
-        """ Computes Queries, Keys and Values (Q K anD V) from target and source.
+        r"""Computes Queries, Keys and Values (Q K anD V) from target and source.
         Target and source can have different embedding sizes.
 
         :param target: target sequence of shape (T,N,E)
-        :param source: source sequence of shape (S,N,Es)
+        :param source: source sequence of shape (S,N,E)
         :return: Queries, Keys and Values tensor, of shape (N*nH, S, H) if merge_batch_head_dim else (N, nH, S, H)
         """
         # set up shape vars
@@ -104,7 +104,7 @@ class Attention(nn.Module):
 
         # compute in-projection: queries, keys and values
         if self._qkv_same_embed_dim:  # (T, N, E) and (S, N, E)
-            q, k, v = self._in_projection_packed(target, source, source, self.in_proj_weight, self.in_proj_bias)
+            q, k, v = self._in_projection_packed(target, source, source)
         else:
             if self.in_proj_bias is None:
                 b_q = b_k = b_v = None
@@ -130,36 +130,42 @@ class Attention(nn.Module):
 
         return q, k, v  # (N*nH, S, H) or (N, nH, S, H)
 
-    @staticmethod
-    def _in_projection_packed(q: Tensor, k: Tensor, v: Tensor, w: Tensor, b: Optional[Tensor] = None) \
+    def _in_projection_packed(self, q: Tensor, k: Tensor, v: Tensor) \
             -> Tuple[Tensor, Tensor, Tensor]:
+        r"""Project source and/or target sequences to get queries, keys and values.
+
+        :param q: queries input tensor (target)
+        :param k: queries input tensor (source)
+        :param v: queries input tensor (source)
+        :return: a tuple with respectively the queries, keys and values tensors
+        """
         embed_dim = q.shape[-1]  # E
         if k is v:
             if q is k:
                 # self-attention
-                return linear(q, w, b).chunk(3, dim=-1)
+                return linear(q, self.in_proj_weight, self.in_proj_bias).chunk(3, dim=-1)
             else:
                 # encoder-decoder attention
-                w_q, w_kv = w.split([embed_dim, embed_dim * 2])
-                if b is None:
+                w_q, w_kv = self.in_proj_weight.split([embed_dim, embed_dim * 2])
+                if self.in_proj_bias is None:
                     b_q = b_kv = None
                 else:
-                    b_q, b_kv = b.split([embed_dim, embed_dim * 2])
+                    b_q, b_kv = self.in_proj_bias.split([embed_dim, embed_dim * 2])
                 return (linear(q, w_q, b_q),) + linear(k, w_kv, b_kv).chunk(2, dim=-1)
         else:
-            w_q, w_k, w_v = w.chunk(3)
-            if b is None:
+            w_q, w_k, w_v = self.in_proj_weight.chunk(3)
+            if self.in_proj_bias is None:
                 b_q = b_k = b_v = None
             else:
-                b_q, b_k, b_v = b.chunk(3)
+                b_q, b_k, b_v = self.in_proj_bias.chunk(3)
             return linear(q, w_q, b_q), linear(k, w_k, b_k), linear(v, w_v, b_v)
 
     def forward(self, target: Tensor, source: Tensor, key_padding_mask: Optional[Tensor] = None,
                 attn_mask: Optional[Tensor] = None) -> Tensor:
-        """To implement in inheriting classes
+        r"""To implement in inheriting classes
 
         :param target: target sequence of shape (T,N,E)
-        :param source: source sequence of shape (S,N,Es)
+        :param source: source sequence of shape (S,N,E)
         :param key_padding_mask: key padding mask of shape (N,S)
         :param attn_mask: attention mask of shape (T,S)
         """
@@ -168,19 +174,21 @@ class Attention(nn.Module):
 
 class ScaledDotProductAttention(Attention):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
-                 vdim: int = None, device: torch.device = None, dtype=None) -> None:
+                 vdim: int = None, device: torch.device = None, dtype=None, merge_batch_head_dim: bool = True) -> None:
         """ Scaled dot product attention, as in the original Transformer paper "Attention is all you need"
 
-        :param embed_dim: embedding dimension (from target sequence)
-        :param num_heads: number of heads (head dim will be embed_dim / num_heads)
-        :param dropout: dropout (during training)
-        :param bias: use biases in linear layers
-        :param kdim: dimension of keys (default None for embed_dim)
-        :param vdim: dimension of values (default None for embed_dim)
-        :param device: device to run (default None)
+        :param embed_dim: embedding / model dimension
+        :param num_heads: number of attention heads
+        :param dropout: dropout value (default: 0.)
+        :param bias: use biases in linear layers (default: True)
+        :param kdim: dimension of keys, give None for embed_dim (default: None)
+        :param vdim: dimension of values, give None for embed_dim (default: None)
+        :param device: device to run (default: None)
         :param dtype: dtype (default None)
+        :param merge_batch_head_dim: will merge head and batch dimensions for faster computation,
+                                    incompatible with linear attention (will be set to False) (default: True)
         """
-        super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype)
+        super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype, merge_batch_head_dim)
 
     def forward(self, target: Tensor, source: Tensor, key_padding_mask: Optional[Tensor] = None,
                 attn_mask: Optional[Tensor] = None) -> Tensor:
@@ -259,28 +267,28 @@ class ScaledDotProductAttention(Attention):
 class LinearAttention(Attention):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
                  vdim: int = None, device: torch.device = None, dtype=None, causal: bool = False):
-        """ Linear attention framework class
+        r"""Linear attention framework class
 
         Implementation inspired by:
         https://github.com/google-research/google-research/blob/master/performer/fast_attention/jax/fast_attention.py
         https://github.com/lucidrains/performer-pytorch
         https://github.com/idiap/fast-transformers
 
-        :param embed_dim: embedding dimension (from target sequence)
-        :param num_heads: number of heads (head dim will be embed_dim / num_heads)
-        :param dropout: dropout (during training)
-        :param bias: use biases in linear layers
-        :param kdim: dimension of keys (default None for embed_dim)
-        :param vdim: dimension of values (default None for embed_dim)
-        :param device: device to run (default None)
+        :param embed_dim: embedding / model dimension
+        :param num_heads: number of attention heads
+        :param dropout: dropout value (default: 0.)
+        :param bias: use biases in linear layers (default: True)
+        :param kdim: dimension of keys, give None for embed_dim (default: None)
+        :param vdim: dimension of values, give None for embed_dim (default: None)
+        :param device: device to run (default: None)
         :param dtype: dtype (default None)
-        :param causal: causal attention, will quickly compute attention with causality
+        :param causal: causal attention, will quickly compute attention with causality (default: False)
         """
         self.causal = causal
         super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype, merge_batch_head_dim=False)
 
     def feature_map(self, x: Tensor, is_query: bool) -> Tensor:
-        """Feature map function, projects input before linear attention approximation
+        r"""Feature map function, projects input before linear attention approximation
 
         :param x: input tensor to project
         :param is_query: specify if input are queries
@@ -289,11 +297,11 @@ class LinearAttention(Attention):
 
     def forward(self, target: Tensor, source: Tensor, key_padding_mask: Optional[BoolTensor] = None,
                 attn_mask: Optional[BoolTensor] = None, eps: Optional[float] = 1e-6) -> Tensor:
-        """
+        r"""Forward pass, computes attention linearly wrt the input sequence length.
 
-        :param target: target sequence, from which queries are derived - shape: (T, N, E)
-        :param source: source sequence, from which keys and values are derived - shape: (S, N, E)
-        :param key_padding_mask: padding mask of keys - shape: (N, S)
+        :param target: target sequence, from which queries are derived - shape: (T,N,E)
+        :param source: source sequence, from which keys and values are derived - shape: (S,N,E)
+        :param key_padding_mask: padding mask of keys - shape: (N,S)
         :param attn_mask: UNUSED HERE attention mask
         :param eps: epsilon value
         :return: attention output of shape (T,N,E)
@@ -341,16 +349,16 @@ class LinearAttention(Attention):
 class EluAttention(LinearAttention):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
                  vdim: int = None, device: torch.device = None, dtype=None, causal: bool = False):
-        """ Linear attention with Elu feature maps
+        r"""Linear attention with Elu feature maps
         Transformers are RNNs: https://arxiv.org/abs/2006.16236
 
-        :param embed_dim: embedding dimension (from target sequence)
-        :param num_heads: number of heads (head dim will be embed_dim / num_heads)
-        :param dropout: dropout (during training)
-        :param bias: use biases in linear layers
-        :param kdim: dimension of keys (default None for embed_dim)
-        :param vdim: dimension of values (default None for embed_dim)
-        :param device: device to run (default None)
+        :param embed_dim: embedding / model dimension
+        :param num_heads: number of attention heads
+        :param dropout: dropout value (default: 0.)
+        :param bias: use biases in linear layers (default: True)
+        :param kdim: dimension of keys, give None for embed_dim (default: None)
+        :param vdim: dimension of values, give None for embed_dim (default: None)
+        :param device: device to run (default: None)
         :param dtype: dtype (default None)
         :param causal: causal attention, will quickly compute attention with causality
         """
@@ -364,20 +372,20 @@ class FavorPlusAttention(LinearAttention):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
                  vdim: int = None, device: torch.device = None, dtype=None, nb_features: int = None,
                  ortho_scaling: int = 0, causal: bool = False):
-        """ Fast Attention Via positive Orthogonal Random vectors
+        r"""Fast Attention Via positive Orthogonal Random vectors
         Linear attention mechanism introduced in Performers: https://arxiv.org/abs/2009.14794
 
         Implementation inspired by:
         https://github.com/google-research/google-research/blob/master/performer/fast_attention/jax/fast_attention.py
         https://github.com/lucidrains/performer-pytorch
 
-        :param embed_dim: embedding dimension (from target sequence)
-        :param num_heads: number of heads (head dim will be embed_dim / num_heads)
-        :param dropout: dropout (during training)
-        :param bias: use biases in linear layers
-        :param kdim: dimension of keys (default None for embed_dim)
-        :param vdim: dimension of values (default None for embed_dim)
-        :param device: device to run (default None)
+        :param embed_dim: embedding / model dimension
+        :param num_heads: number of attention heads
+        :param dropout: dropout value (default: 0.)
+        :param bias: use biases in linear layers (default: True)
+        :param kdim: dimension of keys, give None for embed_dim (default: None)
+        :param vdim: dimension of values, give None for embed_dim (default: None)
+        :param device: device to run (default: None)
         :param dtype: dtype (default None)
         :param nb_features: number of favor+ features
         :param ortho_scaling:
@@ -392,8 +400,8 @@ class FavorPlusAttention(LinearAttention):
         features = self._generate_gaussian_orthogonal_features(device)
         self.register_buffer('features', features)
 
-    def _generate_gaussian_orthogonal_features(self, device=None):
-        """Generates gaussian orthogonal features
+    def _generate_gaussian_orthogonal_features(self, device=None) -> Tensor:
+        r"""Generates gaussian orthogonal features
 
         :param device: device run on
         :return: gaussian orthogonal features of shape (num_features, dim_head)
@@ -421,8 +429,8 @@ class FavorPlusAttention(LinearAttention):
         return torch.diag(multiplier) @ final_matrix
 
     @staticmethod
-    def __generate_orthogonal_matrix(size: int, device: torch.device = None):
-        """ Generates a random orthogonal matrix
+    def __generate_orthogonal_matrix(size: int, device: torch.device = None) -> Tensor:
+        r""" Generates a random orthogonal matrix
 
         :param size: size of the matrix
         :param device: device on which to run (default None, cpu)
@@ -432,8 +440,8 @@ class FavorPlusAttention(LinearAttention):
         q, _ = torch.linalg.qr(random_matrix, mode="complete")
         return q.t()
 
-    def feature_map(self, x: Tensor, is_query: bool, normalize_data: bool = True, eps: float = 1e-4):
-        """Projects an input with positive random features (PRF)
+    def feature_map(self, x: Tensor, is_query: bool, normalize_data: bool = True, eps: float = 1e-4) -> Tensor:
+        r"""Projects an input with positive random features (PRF)
 
         :param x: tensor to approximate
         :param is_query: set True if data are queries

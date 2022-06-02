@@ -19,24 +19,26 @@ from .utils import select_device
 
 class Transformer(Module):
 
-    def __init__(self, num_encoder_layers: int, num_decoder_layers: int, num_classes: int, d_model: int, nhead: int,
-                 dim_feedforward: int, dropout: float = 0.1, max_seq_len: int = None, dtype=None,
+    def __init__(self, num_encoder_layers: int, num_decoder_layers: int, d_model: int, nhead: int, dim_feedforward: int,
+                 dropout: float = 0.1, num_classes: int = None, nb_features_rotary_pos_enc: int = None, dtype=None,
                  activation: str = 'gelu', layer_norm_eps: float = 1e-5, device: device_ = None,
                  padding_token: int = None, causal_enc: bool = False, causal_dec: bool = False,
-                 custom_encoder: Module = None, custom_decoder: Module = None):
+                 custom_encoder: Module = None, custom_decoder: Module = None, custom_input_module: Module = None,
+                 custom_output_module: Module = None):
         r"""A complete Transformer module, with embedding and logits layers.
-        TODO custom input / output modules
         TODO custom predict func ?
 
         :param num_encoder_layers: number of encoder layers, set 0 for no encoder
         :param num_decoder_layers: number of decoder layers, set 0 for no decoder
-        :param num_classes: number of classes, vocabulary size
         :param d_model: model dimension (embedding dim)
         :param nhead: number of attention heads
         :param dim_feedforward: dimension of the feedforward layers (default: 2048)
         :param dropout: dropout value (default: 0.1)
-        :param max_seq_len: maximum sequence length to be passed to both encoder and decoder. This is used to build the
-                            rotary positional encoding module. Give None for no Rotary (relative) PE. (default: None)
+        :param num_classes: number of classes, vocabulary size (default: None, is required if no custom_input_module and
+                            custom_output_module are given)
+        :param nb_features_rotary_pos_enc: number of features for Rotary positional encoding. This has to be >= to the
+                            maximum sequence length that will be passed to the model. The PE module will be passed to
+                            every encoder and decoder layers. Give None for no Rotary PE. (default: None)
         :param dtype:
         :param layer_norm_eps: the eps value in layer normalization components (default=1e-5)
         :param device: device onto the model must be put (default: cuda:0 if cuda.is_available() else cpu)
@@ -49,6 +51,10 @@ class Transformer(Module):
                             (default: False)
         :param custom_encoder: custom encoder module, will override other params
         :param custom_decoder: custom decoder module, will override other params
+        :param custom_input_module: custom input module, which creates embeddings from token sequences
+                            (default: None)
+        :param custom_output_module: custom output module, is intended to compute logits from the last hidden states
+                            (default: None)
         """
         super().__init__()
 
@@ -64,8 +70,10 @@ class Transformer(Module):
         assert head_dim % 2 == 0, f'Non valid combination of model dimension ({d_model}) and number of heads ({nhead})'
 
         # MODULES
-        self.embedder = Embedding(num_classes, d_model, padding_token)
-        pos_enc = RotaryPositionalEncoding(head_dim // 2, (0, max_seq_len)) if max_seq_len is not None else None
+        self.embedder = Embedding(num_classes, d_model, padding_token) \
+            if custom_input_module is None else custom_input_module
+        pos_enc = RotaryPositionalEncoding(head_dim // 2, (0, nb_features_rotary_pos_enc)) \
+            if nb_features_rotary_pos_enc is not None else None
 
         if custom_encoder is not None:
             self.encoder = custom_encoder
@@ -94,7 +102,8 @@ class Transformer(Module):
                         layer.self_attn.pos_enc = pos_enc
                         layer.cross_attn.pos_enc = pos_enc
 
-        self.to_logits = Linear(in_features=d_model, out_features=num_classes)
+        self.to_logits = Linear(in_features=d_model, out_features=num_classes) \
+            if custom_output_module is None else custom_output_module
 
         # INITIALIZATION
         for p in self.parameters():

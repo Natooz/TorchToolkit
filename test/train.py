@@ -121,15 +121,20 @@ if __name__ == '__main__':
     model = Transformer(NB_LAYERS, 0, len(tokenizer), D_MODEL, NB_HEADS, D_FFWD, DROPOUT, MAX_SEQ_LEN, device=device,
                         padding_token=tokenizer['PAD_None'], causal_enc=True)
     criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.vocab['PAD_None'])
-
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    tt0 = time.time()
+
+    print(model)
+    print(f'Number of parameters: {sum(p.numel() for p in model.parameters())}')
+    print(f'Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
+    print(f'Running on {device}')
 
     def log(time_step: int, loss_, acc_, pre_training: bool = False):
         mode = 'PRE-TRAINING' if pre_training else 'TRAINING' if model.training else 'VALIDATION'
         print(progress(time_step, TRAINING_STEPS, 30, f'Loss {loss_:.4f} | Accuracy {acc_:.4f}',
                        beginning=f'{time.time() - tt0:.2f}sec {mode} {time_step} / {TRAINING_STEPS}'))
 
+
+    tt0 = time.time()
     model.train()
     for training_step in range(TRAINING_STEPS):
         # Training

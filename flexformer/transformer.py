@@ -119,13 +119,13 @@ class Transformer(Module):
         :param src_attn_mask: attention mask for the source sequence, shape (S,S) (default: None)
         :param tgt_attn_mask: attention mask for the target sequence, shape (T,T) (default: None)
         :param mem_attn_mask: attention mask for the encoder-decoder attention, shape (T,S) (default: None)
-        :param tgt_key_padding_mask: padding mask of the target sequence, shape (N,T) (default: None)
         :param src_key_padding_mask: padding mask of the source sequence, shape (N,S) (default: None)
+        :param tgt_key_padding_mask: padding mask of the target sequence, shape (N,T) (default: None)
         :param mem_key_padding_mask: padding mask of the encoder-decoder attention, shape (N,S) (default: None)
         :param auto_padding_mask: if True and if no padding mask where given and if self.padding_token is not None,
                                 it will automatically create padding masks for source and target (not memory) from
                                 the padding token given when creating the model. (default: False)
-        :return: output tensor of the decoder, shape (T,N,E)
+        :return: output tensor, from the encoder is src is given and not tgt, else from the decoder, shape (T,N,C)
         """
         # Causal mask
         if self.causal_enc and src_attn_mask is None:
@@ -147,6 +147,38 @@ class Transformer(Module):
             tgt = self.decoder(tgt, src, tgt_attn_mask, mem_attn_mask, tgt_key_padding_mask, mem_key_padding_mask)
 
         return self.to_logits(src) if tgt is None else self.to_logits(tgt)  # (T,N,C)
+
+    def train_forward(self, src: Optional[Tensor] = None, tgt: Optional[Tensor] = None,
+                      src_attn_mask: Optional[Tensor] = None, tgt_attn_mask: Optional[Tensor] = None,
+                      mem_attn_mask: Optional[Tensor] = None,
+                      src_key_padding_mask: Optional[Tensor] = None, tgt_key_padding_mask: Optional[Tensor] = None,
+                      mem_key_padding_mask: Optional[Tensor] = None, auto_padding_mask: bool = True,
+                      batch_first: bool = True):
+        r"""Training function, which takes the same arguments as model.forward but apply the permutations
+        so that the returned tensor has shape (N,C,T) to compute the cross-entropy loss
+
+        :param src: source sequence of the encoder, shape (N,S) if batch_first else (S,N) (default: None)
+        :param tgt: target sequence of the decoder, shape (N) if batch_first else (T,N) (default: None)
+        :param src_attn_mask: attention mask for the source sequence, shape (S,S) (default: None)
+        :param tgt_attn_mask: attention mask for the target sequence, shape (T,T) (default: None)
+        :param mem_attn_mask: attention mask for the encoder-decoder attention, shape (T,S) (default: None)
+        :param src_key_padding_mask: padding mask of the source sequence, shape (N,S) (default: None)
+        :param tgt_key_padding_mask: padding mask of the target sequence, shape (N,T) (default: None)
+        :param mem_key_padding_mask: padding mask of the encoder-decoder attention, shape (N,S) (default: None)
+        :param auto_padding_mask: if True and if no padding mask where given and if self.padding_token is not None,
+                                it will automatically create padding masks for source and target (not memory) from
+                                the padding token given when creating the model. (default: True)
+        :param batch_first: set True if the first dimension of your inputs is batch (default: True)
+        :return: output tensor of the decoder, shape (N,C,T)
+        """
+        if src is not None and batch_first:
+            src = src.t()
+        if tgt is not None and batch_first:
+            tgt = tgt.t()
+        out = self.forward(src, tgt, src_attn_mask, tgt_attn_mask, mem_attn_mask,
+                           src_key_padding_mask, tgt_key_padding_mask, mem_key_padding_mask,
+                           auto_padding_mask)  # (T,N,C)
+        return out.permute(1, 2, 0)  # (N,C,T)
 
     def create_causal_mask(self, size: int) -> Tensor:
         r"""Generates a causal attention mask, to be used with left-to-right predictions.

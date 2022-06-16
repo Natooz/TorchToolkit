@@ -91,4 +91,4 @@ def mask_tensor(x: Tensor, mask_token: int, masking_ratio: float, random_ratio: 
         indices_random = randint(0, mask.shape[1], (x.shape[0], int(mask.shape[1] * random_ratio)))
         random_values = randint(*random_range, indices_random.shape)
         mask = mask.scatter_(-1, indices_random, random_values).to(x.device)
-    return x.scatter_(-1, indices_mask, mask)
+    return x.clone().scatter_(-1, indices_mask, mask)

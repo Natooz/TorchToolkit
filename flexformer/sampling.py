@@ -1,7 +1,7 @@
 import torch
 
 
-def top_k(x: torch.Tensor, k: int, temperature: int = None) -> torch.Tensor:
+def top_k(x: torch.Tensor, k: int, temperature: float = None) -> torch.Tensor:
     r"""Top K sampling
 
     :param x: input tensor of shape (N,C) or (T,N,C)
@@ -18,7 +18,7 @@ def top_k(x: torch.Tensor, k: int, temperature: int = None) -> torch.Tensor:
         return torch.stack([torch.multinomial(torch.softmax(xi, -1), 1).squeeze(-1) for xi in x_copy])
 
 
-def nucleus(x: torch.Tensor, p: float, temperature: int = None) -> torch.Tensor:
+def nucleus(x: torch.Tensor, p: float, temperature: float = None) -> torch.Tensor:
     r"""Nucleus sampling (top p)
 
     :param x: input tensor of shape (C), (N,C)

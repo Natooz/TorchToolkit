@@ -1,7 +1,6 @@
 # Flexformer
 
-Hi 👋, this is my personal implementation of the Transformer architecture. I use it as a flexible framework to build custom architectures and play around with attention, positional encoding and other optimizations from the latest research.
-It also includes some [utilities](flexformer/utils.py), [metrics](flexformer/metrics.py) and [sampling](flexformer/sampling.py) functions.
+Hi 👋, this is my personal PyTorch implementation of the **Transformer** architecture. I use it as a flexible framework to build custom architectures and play around with attention for my projects. It includes several positional encodings, some optimizations from recent research, and also [utilities](flexformer/utils.py), [metrics](flexformer/metrics.py) and [sampling](flexformer/sampling.py) functions.
 
 Feel free to use it, take the code for your projects, and raise an issue if you have question or a pull request if you want to contribute.
 
@@ -24,7 +23,11 @@ y = model(x, auto_padding_mask=True)
 
 I built it for my own usage, so you won't find documentation besides the docstring.
 
-Flexformer implements:
+### Flexformer implements:
 
 * Linear attention, with [Elu](https://arxiv.org/abs/2006.16236) and [Favor+](https://arxiv.org/abs/2009.14794) feature maps
 * [Rotary](https://arxiv.org/abs/2104.09864) and [relative](https://arxiv.org/abs/1809.04281) positional encodings (rotary used by default)
+
+### Disclaimer
+
+I might release updates without stating changelogs, so if anything breaks don't hesitate to check the commits or raise an issue.

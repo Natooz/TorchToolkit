@@ -1,6 +1,6 @@
 # Flexformer
 
-Hi 👋, this is my personal PyTorch implementation of the **Transformer** architecture. I use it as a flexible framework to build custom architectures and play around with attention for my projects. It includes several positional encodings, some optimizations from recent research, and also [utilities](flexformer/utils.py), [metrics](flexformer/metrics.py) and [sampling](flexformer/sampling.py) functions.
+Hi 👋, this is my PyTorch implementation of the **Transformer** architecture. I use it as a flexible framework to build custom architectures and play around with attention for my projects. It includes several positional encodings, some optimizations from recent research, and also [utilities](flexformer/utils.py), [metrics](flexformer/metrics.py) and [sampling](flexformer/sampling.py) functions.
 
 Feel free to use it, take the code for your projects, and raise an issue if you have question or a pull request if you want to contribute.
 

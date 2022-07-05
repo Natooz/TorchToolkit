@@ -54,7 +54,7 @@ def beam_search(logits: torch.Tensor, beam_probs: List[float], x: torch.Tensor =
                 apply_softmax: bool = True, return_beam_probs: bool = False) \
         -> Union[Tuple[Union[torch.Tensor, List[Tuple[int, int]]], List[float]], torch.Tensor, List[Tuple[int, int]]]:
     r"""Beam search sampling / decoding method
-    Returns either the indices as a list of tuples (beam_idx, token), or the actual beams
+    Returns either the indices as a list of tuples (beam_idx, token), or the actual beams (x)
     with the next token appended if x is given.
     beam_probs stores the cumulative probabilities of the all tokens of the current beams (x),
     and will be updated inplace with the new beams.
@@ -65,8 +65,8 @@ def beam_search(logits: torch.Tensor, beam_probs: List[float], x: torch.Tensor =
 
     beam_probs = [1]  # init for the first step, here only 1 beam, will be updated in place
     for _ in range(nb_steps):
-        logits = model(x)  # shape (T,N,C)
-        x = beam_search(logits, beam_probs, x, nb_beams=8)  # append new tokens for each beam, shape (T,N)
+        logits = model(x)  # shape (T,N,C), x has shape (T,N)
+        x = beam_search(logits, beam_probs, x, nb_beams=8)  # append new tokens for each beam, shape (T+1,N)
 
     :param logits: logit tensor of shape (T,N,C), T is sequence length, N beams (used as batch size), C vocab size
     :param beam_probs: list of cumulative probabilities of each beam (N)
@@ -77,7 +77,8 @@ def beam_search(logits: torch.Tensor, beam_probs: List[float], x: torch.Tensor =
     :param apply_softmax: applies softmax on the last dim of the logits (default: True)
     :param return_beam_probs: will return the cumulative probabilities (beam_probs) of the selected beams.
            If given False, the list beam_probs will be updated inplace (default: False)
-    :return: all final beams, as a Tensor of shape (nb_beams,T,N)  T,N,C --> T+1,N ??
+    :return: indices of the beams to keep and token to append as a list of tuples (beam_idx, token),
+            or updated beams (x tensor) of shape (T+1,nb_beams), and updated beam_probs if return_beam_probs
     """
     beam_dim = nb_beams if nb_beams is not None else logits.shape[1]  # = N
     vocab_size = logits.shape[2]

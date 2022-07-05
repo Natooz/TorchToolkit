@@ -36,10 +36,14 @@ def log_cuda_info(logger: Logger = None, memory_only: bool = False):
         log_func(f'Cached memory: {round(cuda.memory_reserved(0) / 1024 ** 3, 1)}GB')
         log_func(f'Allocated memory: {round(cuda.memory_allocated(0) / 1024 ** 3, 1)}GB')
     else:
-        log_func('No cuda device has been detected')
+        log_func('No cuda device detected')
 
 
 def seed_everything(seed: int):
+    r"""Set the seed for pytorch, random (and numpy if available) modules for reproducibility.
+
+    :param seed: seed integer
+    """
     import random
     import os
 
@@ -55,9 +59,9 @@ def seed_everything(seed: int):
 
 
 def log_model_parameters(model: Module, logger: Logger = None, model_desc: bool = True):
-    r"""Log the info of GPU
+    r"""Log the number of parameters of a model
 
-    :param model: the device object
+    :param model: model to analyze
     :param logger: a logger object, if not given this function will print info (default: None)
     :param model_desc: also logs the description of the model, i.e. the modules (default: True)
     """

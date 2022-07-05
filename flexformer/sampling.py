@@ -1,3 +1,5 @@
+from typing import Tuple, List, Union
+
 import torch
 
 
@@ -46,3 +48,49 @@ def nucleus(x: torch.Tensor, p: float, temperature: float = None) -> torch.Tenso
             x_copy[i, sorted_indices[i, to_remove]] = float('-inf')
 
     return torch.multinomial(torch.softmax(x_copy, -1), 1).squeeze(-1)
+
+
+def beam_search(logits: torch.Tensor, beam_probs: List[float], x: torch.Tensor = None, nb_beams: int = None,
+                apply_softmax: bool = True, return_beam_probs: bool = False) \
+        -> Union[Tuple[Union[torch.Tensor, List[Tuple[int, int]]], List[float]], torch.Tensor, List[Tuple[int, int]]]:
+    r"""Beam search sampling
+    Returns either the indices as a list of tuples (beam_idx, token), or the actual beams
+    with the next token appended if x is given.
+    Beam probs will be updated inplace with the new beams.
+    The second dimension of (N) of the logits represents the beams, its length is the number of beams
+    if nb_beams is None. Else nb_beams will update the number of beams within beam_probs (and x).
+
+    :param logits: logit tensor of shape (T,N,C), T is sequence length, N beams (used as batch size), C vocab size
+    :param beam_probs: list of cumulative probabilities of each beam (N)
+    :param x: actual beams, as tokens (T,N). Give this argument to update x with the new beams
+            and appended new tokens. If given, the function will return x updated. (default: None)
+    :param nb_beams: number of beams, to be used to set the number of output beams. Give None to keep
+            the same beam size (N) as in the logit tensor (default: None)
+    :param apply_softmax: applies softmax on the last dim of the logits (default: True)
+    :param return_beam_probs: will return the cumulative probabilities (beam_probs) of the selected beams.
+           If given False, the list beam_probs will be updated inplace (default: False)
+    :return: all final beams, as a Tensor of shape (nb_beams,T,N)  T,N,C --> T+1,N ??
+    """
+    beam_dim = nb_beams if nb_beams is not None else logits.shape[1]  # = N
+    vocab_size = logits.shape[2]
+    if apply_softmax:
+        logits = torch.softmax(logits, -1)
+
+    # Computes cumulative probs and pick the top ones as new beams
+    cum_probs = [beam_prob + log for n, beam_prob in enumerate(beam_probs) for log in logits[-1, n].tolist()]
+    indices = torch.topk(torch.Tensor(cum_probs), beam_dim).indices.tolist()  # (N)
+    real_indices = [(idx // vocab_size, idx % vocab_size) for idx in indices]  # as (beam index, token)
+
+    # Updates beam probs list inplace
+    for i, (n, l) in enumerate(real_indices):
+        if i < len(beam_probs):
+            beam_probs[n] = cum_probs[l]
+        else:
+            beam_probs.append(cum_probs[l])
+    while len(beam_probs) > beam_dim:  # deletes extra beams if the number got reduced
+        del beam_probs[-1]
+
+    if x is not None:
+        x = torch.stack([torch.cat([x[:, n], torch.Tensor([l])]) for n, l in real_indices]).t()
+        return (x, beam_probs) if return_beam_probs else x
+    return (real_indices, beam_probs) if return_beam_probs else real_indices

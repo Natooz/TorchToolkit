@@ -1,7 +1,7 @@
 from logging import Logger
 from typing import List
 
-from torch import device, cuda, Tensor, randint, full
+from torch import device, cuda, Tensor, randint, full, manual_seed
 from torch.utils.data import Dataset, Subset, random_split
 from torch.nn.modules import Module
 
@@ -37,6 +37,21 @@ def log_cuda_info(logger: Logger = None, memory_only: bool = False):
         log_func(f'Allocated memory: {round(cuda.memory_allocated(0) / 1024 ** 3, 1)}GB')
     else:
         log_func('No cuda device has been detected')
+
+
+def seed_everything(seed: int):
+    import random
+    import os
+
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    manual_seed(seed)
+    cuda.manual_seed_all(seed)
+    try:
+        import numpy as np
+        np.random.seed(seed)
+    except ImportError:
+        pass
 
 
 def log_model_parameters(model: Module, logger: Logger = None, model_desc: bool = True):

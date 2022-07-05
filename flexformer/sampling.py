@@ -53,12 +53,20 @@ def nucleus(x: torch.Tensor, p: float, temperature: float = None) -> torch.Tenso
 def beam_search(logits: torch.Tensor, beam_probs: List[float], x: torch.Tensor = None, nb_beams: int = None,
                 apply_softmax: bool = True, return_beam_probs: bool = False) \
         -> Union[Tuple[Union[torch.Tensor, List[Tuple[int, int]]], List[float]], torch.Tensor, List[Tuple[int, int]]]:
-    r"""Beam search sampling
+    r"""Beam search sampling / decoding method
     Returns either the indices as a list of tuples (beam_idx, token), or the actual beams
     with the next token appended if x is given.
-    Beam probs will be updated inplace with the new beams.
+    beam_probs stores the cumulative probabilities of the all tokens of the current beams (x),
+    and will be updated inplace with the new beams.
     The second dimension of (N) of the logits represents the beams, its length is the number of beams
-    if nb_beams is None. Else nb_beams will update the number of beams within beam_probs (and x).
+    if nb_beams is None. Else nb_beams will update the number of beams within beam_probs (and x). It can
+    be used to dynamically change the number of beams.
+    Example:
+
+    beam_probs = [1]  # init for the first step, here only 1 beam, will be updated in place
+    for _ in range(nb_steps):
+        logits = model(x)  # shape (T,N,C)
+        x = beam_search(logits, beam_probs, x, nb_beams=8)  # append new tokens for each beam, shape (T,N)
 
     :param logits: logit tensor of shape (T,N,C), T is sequence length, N beams (used as batch size), C vocab size
     :param beam_probs: list of cumulative probabilities of each beam (N)
@@ -79,18 +87,18 @@ def beam_search(logits: torch.Tensor, beam_probs: List[float], x: torch.Tensor =
     # Computes cumulative probs and pick the top ones as new beams
     cum_probs = [beam_prob + log for n, beam_prob in enumerate(beam_probs) for log in logits[-1, n].tolist()]
     indices = torch.topk(torch.Tensor(cum_probs), beam_dim).indices.tolist()  # (N)
-    real_indices = [(idx // vocab_size, idx % vocab_size) for idx in indices]  # as (beam index, token)
+    real_indices = [(idx // vocab_size, idx % vocab_size) for idx in indices]  # as tuples (beam_idx, token)
 
     # Updates beam probs list inplace
     for i, (n, l) in enumerate(real_indices):
         if i < len(beam_probs):
             beam_probs[n] = cum_probs[l]
-        else:
+        else:  # in case the number of beams got increased
             beam_probs.append(cum_probs[l])
     while len(beam_probs) > beam_dim:  # deletes extra beams if the number got reduced
         del beam_probs[-1]
 
-    if x is not None:
+    if x is not None:  # no inplace operation possible here to update x
         x = torch.stack([torch.cat([x[:, n], torch.Tensor([l])]) for n, l in real_indices]).t()
         return (x, beam_probs) if return_beam_probs else x
     return (real_indices, beam_probs) if return_beam_probs else real_indices

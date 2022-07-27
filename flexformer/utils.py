@@ -1,42 +1,7 @@
-from logging import Logger
 from typing import List
 
-from torch import device, cuda, Tensor, randint, full, manual_seed
+from torch import cuda, Tensor, randint, full, manual_seed
 from torch.utils.data import Dataset, Subset, random_split
-from torch.nn.modules import Module
-
-
-def select_device(use_cuda: bool = True, log: bool = False) -> device:
-    r"""Select the device on which PyTorch will run
-
-    :param use_cuda: specify if you want to run it on the GPU if available (default: True)
-    :param log: will log a warning message if a CUDA device is detected but not used (default: False)
-    :return: cpu or cuda:0
-    """
-    if cuda.is_available():
-        if use_cuda:
-            return device('cuda:0')
-        elif log:
-            print('WARNING: You have a CUDA device, you should probably run with it')
-    return device('cpu')
-
-
-def log_cuda_info(logger: Logger = None, memory_only: bool = False):
-    r"""Log the info of GPU
-
-    :param logger: a logger object, if not given this function will print info (default: None)
-    :param memory_only: choose to log only the memory state of GPU (default: False)
-    """
-    log_func = logger.debug if logger is not None else print
-    if cuda.is_available():
-        if not memory_only:
-            log_func('******** GPU INFO ********')
-            log_func(f'GPU: {cuda.get_device_name(0)}')
-        log_func(f'Total memory: {round(cuda.torch.cuda.get_device_properties(0).total_memory / 1024 ** 3, 1)}GB')
-        log_func(f'Cached memory: {round(cuda.memory_reserved(0) / 1024 ** 3, 1)}GB')
-        log_func(f'Allocated memory: {round(cuda.memory_allocated(0) / 1024 ** 3, 1)}GB')
-    else:
-        log_func('No cuda device detected')
 
 
 def seed_everything(seed: int):
@@ -51,27 +16,11 @@ def seed_everything(seed: int):
     os.environ['PYTHONHASHSEED'] = str(seed)
     manual_seed(seed)
     cuda.manual_seed_all(seed)
-    try:
+    try:  # in try as not in setup module requirements
         import numpy as np
         np.random.seed(seed)
     except ImportError:
         pass
-
-
-def log_model_parameters(model: Module, logger: Logger = None, model_desc: bool = True):
-    r"""Log the number of parameters of a model
-
-    :param model: model to analyze
-    :param logger: a logger object, if not given this function will print info (default: None)
-    :param model_desc: also logs the description of the model, i.e. the modules (default: True)
-    """
-    log_func = logger.debug if logger is not None else print
-    if not model_desc:
-        log_func('******** MODEL INFO ********')
-        log_func(model)
-    log_func(f'Number of parameters: {sum(p.numel() for p in model.parameters())}')
-    log_func(f'Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
-    log_func(f'Running on {model.device}')
 
 
 def create_subsets(dataset: Dataset, split_ratio: List[float]) -> List[Subset]:

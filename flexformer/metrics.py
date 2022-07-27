@@ -1,7 +1,79 @@
-from typing import Union
+from typing import Union, Callable
+from pathlib import Path, PurePath
 from math import prod
+from logging import Logger
+import csv
+import json
 
 import torch
+
+
+class Metric:
+    """
+
+    :param name:
+    :param function:
+    """
+
+    def __init__(self, name: str, function: Callable, one_dim: bool = False):
+        self.name = name
+        self.function = function
+        self.results = None
+        self.one_dim = one_dim
+
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def save(self, out_dir: Union[str, Path, PurePath], reset_after: bool = True):
+        with open(PurePath(out_dir, self.name).with_suffix('.csv'), 'w', newline='') as f:
+            writer = csv.writer(f)
+            if self.one_dim:
+                writer.writerow(self.results)
+            else:
+                for track in self.results:
+                    writer.writerow(track)
+        if reset_after:
+            self.reset()
+
+    def _save_json(self, out_dir: Union[str, Path, PurePath], reset_after: bool = True):
+        with open(PurePath(out_dir, self.name).with_suffix('.json'), 'w') as f:
+            json.dump(self.results, f)
+        if reset_after:
+            self.reset()
+
+    def load(self, file_dir: Union[str, Path, PurePath]):
+        if len(self.results) > 0:
+            self.reset()
+        with open(PurePath(file_dir, self.name).with_suffix('.csv')) as csvfile:
+            reader = csv.reader(csvfile)
+            if self.one_dim:
+                for row in reader:
+                    self.results = [float(i) for i in row]
+            else:
+                self.results = []
+                for row in reader:
+                    self.results.append([float(i) for i in row])
+
+    def _load_json(self, file_dir: Union[str, Path, PurePath]):
+        with open(PurePath(file_dir, self.name).with_suffix('.json')) as f:
+            self.results = json.load(f)
+
+    def analyze(self, logger: Logger, nb_figures: int = 3, *args, **kwargs):
+        if isinstance(self.results[0], torch.Tensor):
+            results = torch.stack(self.results)
+        elif isinstance(self.results[0], list):
+            results = torch.Tensor(self.results)
+        else:
+            from numpy import ndarray
+            if isinstance(self.results[0], ndarray):
+                results = torch.stack([torch.from_numpy(array) for array in self.results])
+            else:
+                results = torch.Tensor(self.results)  # not sure about the results, might raise error
+        # mea, td = np.mean(results), np.std(results)
+        logger.debug(f'mean {self.name}: {torch.mean(results):.{nb_figures}f} ± {torch.std(results):.{nb_figures}f}')
+
+    def reset(self):
+        self.results = []
 
 
 def calculate_accuracy(result: torch.Tensor, expected: torch.Tensor, mode: str = 'greedy',

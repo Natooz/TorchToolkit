@@ -4,13 +4,13 @@
 
 """
 
-from math import pi, log, sqrt
-from typing import Tuple, Union
+from math import pi, log
+from typing import Tuple
 
-import torch
-from torch.nn import Module, Parameter, Conv1d, Conv2d, Conv3d, Dropout
-from torch.nn.functional import pad, softplus
-from torch import Tensor
+from torch import Tensor, sin, cos, arange, exp, zeros, ones, linspace, einsum, repeat_interleave, cat, stack, matmul, \
+    float, randn
+from torch.nn import Module, Parameter, Dropout
+from torch.nn.functional import pad
 
 
 class PositionalEncoding(Module):
@@ -38,11 +38,11 @@ class AbsolutePositionalEncoding(PositionalEncoding):
         super().__init__(absolute=True)
         self.dropout = Dropout(p=dropout)
 
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = zeros(max_len, d_model)
+        position = arange(0, max_len, dtype=float).unsqueeze(1)
+        div_term = exp(arange(0, d_model, 2).float() * (-log(10000.0) / d_model))
+        pe[:, 0::2] = sin(position * div_term)
+        pe[:, 1::2] = cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
         self.register_buffer('pe', pe)
 
@@ -80,11 +80,11 @@ class RotaryPositionalEncoding(PositionalEncoding):
         if custom_freqs is not None:
             freqs = custom_freqs
         elif freqs_for == 'lang':
-            freqs = 1. / (theta ** (torch.arange(0, dim, 2)[:(dim // 2)].float() / dim))
+            freqs = 1. / (theta ** (arange(0, dim, 2)[:(dim // 2)].float() / dim))
         elif freqs_for == 'pixel':
-            freqs = torch.linspace(1., max_freq / 2, dim // 2) * pi
+            freqs = linspace(1., max_freq / 2, dim // 2) * pi
         elif freqs_for == 'constant':
-            freqs = torch.ones(num_freqs).float()
+            freqs = ones(num_freqs).float()
         else:
             raise ValueError(f'unknown modality {freqs_for}')
 
@@ -97,15 +97,15 @@ class RotaryPositionalEncoding(PositionalEncoding):
         :param positions: starting and ending positions of the rotations to compute
         :return: the rotations tensor
         """
-        rotations = torch.einsum('..., f -> ... f', torch.arange(*positions, dtype=self.freqs.dtype), self.freqs)
-        rotations = torch.repeat_interleave(rotations, 2, -1)  # repeat(rotations, '... n -> ... (n r)', r = 2)
+        rotations = einsum('..., f -> ... f', arange(*positions, dtype=self.freqs.dtype), self.freqs)
+        rotations = repeat_interleave(rotations, 2, -1)  # repeat(rotations, '... n -> ... (n r)', r = 2)
         return rotations
 
     @staticmethod
     def _rotate_half(x) -> Tensor:
         x = x.unflatten(-1, (x.size(-1) // 2, 2))
         x1, x2 = x.unbind(dim=-1)
-        x = torch.stack((-x2, x1), dim=-1)
+        x = stack((-x2, x1), dim=-1)
         return x.flatten(-2, -1)
 
     def forward(self, x, start_index=0):
@@ -122,7 +122,7 @@ class RotaryPositionalEncoding(PositionalEncoding):
 
         x_left, x, x_right = x[..., :start_index], x[..., start_index:end_index], x[..., end_index:]
         x = (x * self.rotations[:x.shape[-2]].cos()) + (self._rotate_half(x) * self.rotations[:x.shape[-2]].sin())
-        return torch.cat((x_left, x, x_right), dim=-1)
+        return cat((x_left, x, x_right), dim=-1)
 
 
 class RelativePositionalEncoding(PositionalEncoding):
@@ -138,7 +138,7 @@ class RelativePositionalEncoding(PositionalEncoding):
 
     def __init__(self, head_dim: int, max_len: int):
         super().__init__(relative=True)
-        self.Er = Parameter(torch.randn(max_len, head_dim))
+        self.Er = Parameter(randn(max_len, head_dim))
         self.max_len = max_len
 
     def forward(self, q: Tensor) -> Tensor:
@@ -151,7 +151,7 @@ class RelativePositionalEncoding(PositionalEncoding):
 
         start = self.max_len - seq_len
         er_t = self.Er[start:, :].transpose(0, 1)  # (head_dim, seq_len)
-        q_er = torch.matmul(q, er_t)  # (batch_size, num_heads, seq_len, seq_len)
+        q_er = matmul(q, er_t)  # (batch_size, num_heads, seq_len, seq_len)
         s_rel = self._skew(q_er)  # (batch_size, num_heads, seq_len, seq_len)
         return s_rel
 

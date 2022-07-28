@@ -14,7 +14,7 @@ from torch import device as device_
 
 from .attention import Attention, ScaledDotProductAttention
 from .pos_encoding import RotaryPositionalEncoding
-from .utils import select_device
+from .train import select_device
 
 
 class Transformer(Module):

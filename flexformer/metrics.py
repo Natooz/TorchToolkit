@@ -69,7 +69,6 @@ class Metric:
                 results = torch.stack([torch.from_numpy(array) for array in self.results])
             else:
                 results = torch.Tensor(self.results)  # not sure about the results, might raise error
-        # mea, td = np.mean(results), np.std(results)
         logger.debug(f'mean {self.name}: {torch.mean(results):.{nb_figures}f} ± {torch.std(results):.{nb_figures}f}')
 
     def reset(self):

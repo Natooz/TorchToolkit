@@ -2,15 +2,15 @@
 from sys import stdout
 from pathlib import Path, PurePath
 from typing import Union, List, Any
-import time
 
 import miditok
 from miditoolkit import MidiFile
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader, random_split
 
 from flexformer import Transformer
-from flexformer.utils import select_device
+from flexformer.train import select_device, train
 
 
 BATCH_SIZE = 4
@@ -22,8 +22,8 @@ MIN_SEQ_LEN = 384
 LEARNING_RATE = 3e-4
 TRAINING_STEPS = 20000
 WEIGHT_DECAY = 0.01
-TRAIN_INTERVAL = 20
-VALID_INTERVAL = 10
+VALID_INTERVAL = 20
+NB_VALID_STEPS = 10
 LOG_INTERVAL = 10
 
 NB_LAYERS = 4
@@ -123,12 +123,12 @@ if __name__ == '__main__':
     criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.vocab['PAD_None'])
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
-    print(model)
-    print(f'Number of parameters: {sum(p.numel() for p in model.parameters())}')
-    print(f'Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
-    print(f'Running on {device}')
+    # (3) Train
+    tensorboard = SummaryWriter(str(Path('test', 'test')))
+    train(model, criterion, optimizer, data_loader_train, data_loader_valid, TRAINING_STEPS, VALID_INTERVAL,
+          NB_VALID_STEPS, tensorboard, LOG_INTERVAL, 'TEST TRAINING')
 
-    def log(time_step: int, loss_, acc_, pre_training: bool = False):
+    '''def log(time_step: int, loss_, acc_, pre_training: bool = False):
         mode = 'PRE-TRAINING' if pre_training else 'TRAINING' if model.training else 'VALIDATION'
         print(progress(time_step, TRAINING_STEPS, 30, f'Loss {loss_:.4f} | Accuracy {acc_:.4f}',
                        beginning=f'{time.time() - tt0:.2f}sec {mode} {time_step} / {TRAINING_STEPS}'))
@@ -157,11 +157,11 @@ if __name__ == '__main__':
             log(training_step, loss, acc)
 
         # Validation
-        if training_step % TRAIN_INTERVAL == 0:
+        if training_step % VALID_INTERVAL == 0:
             model.eval()
             valid_losses = []
             valid_accs = []
-            for valid_step in range(VALID_INTERVAL):
+            for valid_step in range(NB_VALID_STEPS):
                 try:
                     x = next(valid_iter).to(device)  # (N,T)
                 except StopIteration:
@@ -178,4 +178,4 @@ if __name__ == '__main__':
             valid_losses = mean(valid_losses)
             valid_accs = mean(valid_accs)
             log(training_step, valid_losses, valid_accs)
-            model.train()
+            model.train()'''

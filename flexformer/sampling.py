@@ -9,24 +9,24 @@ def top_k(x: torch.Tensor, k: int, temperature: float = None) -> torch.Tensor:
     :param x: input tensor of shape (N,C) or (T,N,C)
     :param k: k factor
     :param temperature: temperature for softmax
-    :return: sampling results as (N)
+    :return: sampling results as (N) or (T,N)
     """
     x_copy = x.clone() / temperature if temperature is not None else x.clone()
     indices_to_inf = x < torch.topk(x, k)[0][..., -1, None]
     x_copy[indices_to_inf] = float('-inf')
     if x.dim() == 2:  # (N,C)
-        return torch.multinomial(torch.softmax(x_copy, -1), 1).squeeze(-1)
+        return torch.multinomial(torch.softmax(x_copy, -1), 1).squeeze(-1)  # (N)
     elif x.dim() == 3:  # (T,N,C)
-        return torch.stack([torch.multinomial(torch.softmax(xi, -1), 1).squeeze(-1) for xi in x_copy])
+        return torch.stack([torch.multinomial(torch.softmax(xi, -1), 1).squeeze(-1) for xi in x_copy])  # (T,N)
 
 
 def nucleus(x: torch.Tensor, p: float, temperature: float = None) -> torch.Tensor:
     r"""Nucleus sampling (top p)
 
     :param x: input tensor of shape (C), (N,C)
-    :param p: p factor
+    :param p: top-p value
     :param temperature: temperature for softmax
-    :return: sampling results as (N)
+    :return: sampling results as scalar tensor or (N)
     """
     if temperature is not None:
         x = x / temperature

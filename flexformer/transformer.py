@@ -2,9 +2,10 @@
 
 """
 
-from typing import Union, Optional
+from typing import Union, Tuple, Optional, Callable
 from copy import deepcopy
 from pathlib import Path, PurePath
+from functools import partial
 
 from torch.nn import Module, LayerNorm, Linear, Dropout, Embedding, ModuleList
 from torch.nn.init import xavier_uniform_
@@ -15,6 +16,7 @@ from torch import device as device_
 from .attention import Attention, ScaledDotProductAttention
 from .pos_encoding import RotaryPositionalEncoding
 from .train import select_device
+from .sampling import top_k
 
 
 class Transformer(Module):
@@ -24,7 +26,7 @@ class Transformer(Module):
                  activation: str = 'gelu', layer_norm_eps: float = 1e-5, device: device_ = None,
                  padding_token: int = None, causal_enc: bool = False, causal_dec: bool = False,
                  custom_encoder: Module = None, custom_decoder: Module = None, custom_input_module: Module = None,
-                 custom_output_module: Module = None):
+                 custom_output_module: Module = None, sampling_func: Callable = None):
         r"""A complete Transformer module, with embedding and logits layers.
         TODO custom predict func ?
 
@@ -55,6 +57,8 @@ class Transformer(Module):
                             (default: None)
         :param custom_output_module: custom output module, is intended to compute logits from the last hidden states
                             (default: None)
+        :param sampling_func: a method to sample from a sequence of distributions (tensor of shape (T,N,C)),
+                            (default: None, i.e. top_k with k=5)
         """
         super().__init__()
 
@@ -63,6 +67,7 @@ class Transformer(Module):
         self.causal_enc = causal_enc
         self.causal_dec = causal_dec
         self.padding_token = padding_token
+        self.sampling_func = partial(top_k, k=5) if sampling_func is None else sampling_func
 
         # ASSERTIONS
         head_dim, rest = divmod(d_model, nhead)
@@ -157,7 +162,7 @@ class Transformer(Module):
 
         return self.to_logits(src) if tgt is None else self.to_logits(tgt)  # (T,N,C)
 
-    def train_forward(self, src: Optional[Tensor] = None, tgt: Optional[Tensor] = None,
+    def forward_train(self, x: Union[Tensor, Tuple[Tensor, Tensor]], target: Tensor, criterion: Module,
                       src_attn_mask: Optional[Tensor] = None, tgt_attn_mask: Optional[Tensor] = None,
                       mem_attn_mask: Optional[Tensor] = None,
                       src_key_padding_mask: Optional[Tensor] = None, tgt_key_padding_mask: Optional[Tensor] = None,
@@ -166,8 +171,10 @@ class Transformer(Module):
         r"""Training function, which takes the same arguments as model.forward but apply the permutations
         so that the returned tensor has shape (N,C,T) to compute the cross-entropy loss
 
-        :param src: source sequence of the encoder, shape (N,S) if batch_first else (S,N) (default: None)
-        :param tgt: target sequence of the decoder, shape (N) if batch_first else (T,N) (default: None)
+        :param x: input, may be a Tensor (source for the encoder only) or a tuple of tensors (source for
+                    the encoder and target for the decoder). Shapes must be (N,S) if batch_first else (S,N).
+        :param target (expected) result for loss computation, shape (N,S) or (N,T) if encoder-decoder
+        :param criterion: criterion computing the loss
         :param src_attn_mask: attention mask for the source sequence, shape (S,S) (default: None)
         :param tgt_attn_mask: attention mask for the target sequence, shape (T,T) (default: None)
         :param mem_attn_mask: attention mask for the encoder-decoder attention, shape (T,S) (default: None)
@@ -180,14 +187,22 @@ class Transformer(Module):
         :param batch_first: set True if the first dimension of your inputs is batch (default: True)
         :return: output tensor of the decoder, shape (N,C,T)
         """
-        if src is not None and batch_first:
+        if isinstance(x, tuple):
+            src, tgt = x
+        elif isinstance(x, Tensor):
+            src, tgt = x, None
+        else:
+            raise 'Unkown input type'
+        if batch_first:
             src = src.t()
-        if tgt is not None and batch_first:
-            tgt = tgt.t()
+            if tgt is not None:
+                tgt = tgt.t()
         out = self.forward(src, tgt, src_attn_mask, tgt_attn_mask, mem_attn_mask,
                            src_key_padding_mask, tgt_key_padding_mask, mem_key_padding_mask,
                            auto_padding_mask)  # (T,N,C)
-        return out.permute(1, 2, 0)  # (N,C,T)
+        loss = criterion(out.permute(1, 2, 0), target)  # (N,C,T) & (N,T)
+        out_sampled = self.sampling_func(out)
+        return out, loss, out_sampled  # (N,C,T)
 
     def create_causal_mask(self, size: int) -> Tensor:
         r"""Generates a causal attention mask, to be used with left-to-right predictions.

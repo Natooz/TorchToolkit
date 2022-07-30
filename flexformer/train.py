@@ -10,6 +10,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from torch.cuda import empty_cache
 from tqdm import tqdm
 
 from .metrics import Metric, calculate_accuracy
@@ -104,6 +105,8 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     train_iter = iter(dataloader_train)
     valid_iter = iter(dataloader_valid)
     amp_context = __null_context if not use_amp else partial(autocast, enabled=False)
+    if model.device.type == 'cuda':
+        empty_cache()  # clears GPU memory, may be required after running several trainings successively
 
     for training_step in (pbar := tqdm(range(nb_steps), desc=pbar_desc)):
         optimizer.zero_grad()  # Initialise gradients

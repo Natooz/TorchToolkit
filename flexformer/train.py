@@ -104,7 +104,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     last_loss_valid = last_acc_valid = 0  # use for pbar postfix
     train_iter = iter(dataloader_train)
     valid_iter = iter(dataloader_valid)
-    amp_context = __null_context if not use_amp else partial(autocast, enabled=False)
+    amp_context = __null_context if not use_amp else partial(autocast, 'cuda')
     if model.device.type == 'cuda':
         empty_cache()  # clears GPU memory, may be required after running several trainings successively
 

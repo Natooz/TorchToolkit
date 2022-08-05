@@ -17,7 +17,6 @@ from torch import Tensor, BoolTensor
 from torch.nn.functional import relu, linear, softmax
 from torch.nn.functional import dropout as dropout_
 from torch.nn.modules.linear import NonDynamicallyQuantizableLinear
-from fast_transformers.causal_product import causal_dot_product
 
 from .pos_encoding import PositionalEncoding
 
@@ -266,7 +265,7 @@ class ScaledDotProductAttention(Attention):
 
 class LinearAttention(Attention):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
-                 vdim: int = None, device: torch.device = None, dtype=None, causal: bool = False):
+                 vdim: int = None, device: torch.device = None, dtype=None):
         r"""Linear attention framework class
 
         Implementation inspired by:
@@ -282,9 +281,7 @@ class LinearAttention(Attention):
         :param vdim: dimension of values, give None for embed_dim (default: None)
         :param device: device to run (default: None)
         :param dtype: dtype (default None)
-        :param causal: causal attention, will quickly compute attention with causality (default: False)
         """
-        self.causal = causal
         super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype, merge_batch_head_dim=False)
 
     def feature_map(self, x: Tensor, is_query: bool) -> Tensor:
@@ -302,39 +299,30 @@ class LinearAttention(Attention):
         :param target: target sequence, from which queries are derived - shape: (T,N,E)
         :param source: source sequence, from which keys and values are derived - shape: (S,N,E)
         :param key_padding_mask: padding mask of keys - shape: (N,S)
-        :param attn_mask: UNUSED HERE attention mask
+        :param attn_mask: attention mask for k and v
         :param eps: epsilon value
         :return: attention output of shape (T,N,E)
         """
         tgt_len, bsz, _ = target.shape
-        q, k, v = self._compute_qkv(target, source)  # (N, nH, S, dH), nH number of heads, dH=E/nH
+        q, k, v = self._compute_qkv(target, source)  # (N, nH, T|S, dH), nH number of heads, dH=E/nH
 
         # project queries and keys with positive orthogonal vectors
-        q = self.feature_map(q, is_query=True)  # (N, nH, S, dH)
+        q = self.feature_map(q, is_query=True)  # (N, nH, T, dH)
         k = self.feature_map(k, is_query=False)  # (N, nH, S, dH)
 
         # Applies the key padding mask
         if key_padding_mask is not None:
             k = k * key_padding_mask.float()[:, None, :, None]
 
-        # Compute the dot product of keys and values, then with queries
-        if self.causal:
-            k_cumsum = k.cumsum(dim=-2) + eps
-            d_inv = 1. / torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-            if isinstance(q, torch.cuda.HalfTensor):
-                q, k, v = map(lambda t: t.float(), (q, k, v))  # HalfTensors converted to FloatTensors
-                with torch.cuda.amp.autocast(enabled=False):
-                    out = torch.cuda.amp.float_function(causal_dot_product(q, k, v))  # (N, nH, S, E/nH)
-            else:
-                out = causal_dot_product(q, k, v)
+        # Applies the key padding mask
+        if attn_mask is not None:
+            k += attn_mask[:, None, :, None]
+            v += attn_mask[:, None, :, None]
 
-            out = torch.einsum('...nd,...n->...nd', out, d_inv)
-        else:
-            # fast transformers (N, nH, S, dH)
-            # kv = torch.einsum("nsd,nsm->nmd", k, v)
-            kv = torch.einsum("nhsd,nhsm->nhmd", k, v)
-            z = 1 / (torch.einsum("nhtd,nhd->nht", q, k.sum(dim=-2)) + eps)  # Compute the normalizer
-            out = torch.einsum("nhtd,nhmd,nht->nhtm", q, kv, z)  # Finally, compute and return the new values
+        # Compute the dot product of keys and values, then with queries
+        kv = torch.einsum("nhsd,nhsm->nhmd", k, v)  # (N,nH,dv,dk)
+        z = 1 / (torch.einsum("nhtd,nhd->nht", q, k.sum(dim=-2)) + eps)  # normalizer
+        out = torch.einsum("nhtd,nhmd,nht->nhtm", q, kv, z)  # (N,nH,T,dv)
 
         if self.training and self.dropout > 0.0:
             out = nn.functional.dropout(out, p=self.dropout)
@@ -348,7 +336,7 @@ class LinearAttention(Attention):
 
 class EluAttention(LinearAttention):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
-                 vdim: int = None, device: torch.device = None, dtype=None, causal: bool = False):
+                 vdim: int = None, device: torch.device = None, dtype=None):
         r"""Linear attention with Elu feature maps
         Transformers are RNNs: https://arxiv.org/abs/2006.16236
 
@@ -360,9 +348,8 @@ class EluAttention(LinearAttention):
         :param vdim: dimension of values, give None for embed_dim (default: None)
         :param device: device to run (default: None)
         :param dtype: dtype (default None)
-        :param causal: causal attention, will quickly compute attention with causality
         """
-        super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype, causal)
+        super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype)
 
     def feature_map(self, x: Tensor, is_query: bool) -> Tensor:
         return nn.functional.elu(x) + 1
@@ -371,7 +358,7 @@ class EluAttention(LinearAttention):
 class FavorPlusAttention(LinearAttention):
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., bias: bool = True, kdim: int = None,
                  vdim: int = None, device: torch.device = None, dtype=None, nb_features: int = None,
-                 ortho_scaling: int = 0, causal: bool = False):
+                 ortho_scaling: int = 0):
         r"""Fast Attention Via positive Orthogonal Random vectors
         Linear attention mechanism introduced in Performers: https://arxiv.org/abs/2009.14794
 
@@ -389,9 +376,8 @@ class FavorPlusAttention(LinearAttention):
         :param dtype: dtype (default None)
         :param nb_features: number of favor+ features
         :param ortho_scaling:
-        :param causal: causal attention, will quickly compute attention with causality
         """
-        super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype, causal)
+        super().__init__(embed_dim, num_heads, dropout, bias, kdim, vdim, device, dtype)
 
         self.dim_heads = embed_dim // num_heads
         self.nb_features = nb_features if nb_features is not None else int(self.dim_heads * math.log(self.dim_heads))

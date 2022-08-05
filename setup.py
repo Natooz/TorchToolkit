@@ -8,7 +8,7 @@ setup(
     author='Nathan Fradet',
     url='https://github.com/Natooz/flexformer',
     packages=find_packages(exclude=("test",)),
-    version='1.0.4',
+    version='1.0.5',
     license='MIT',
     description='A general implementation of Transformer, to play around with attention and build custom architectures',
     long_description=long_description,

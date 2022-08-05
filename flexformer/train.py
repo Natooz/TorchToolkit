@@ -4,7 +4,7 @@ from typing import List, Callable
 from contextlib import contextmanager
 from functools import partial
 
-from torch import device, cuda, autocast, mean, stack, no_grad
+from torch import Tensor, device, cuda, autocast, mean, no_grad
 from torch.nn.modules import Module
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
@@ -154,8 +154,8 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
 
                 for m, metric in enumerate(valid_metrics):
                     metric(x, y_sampled)
-            valid_loss = mean(stack(valid_loss))
-            valid_acc = mean(stack(valid_acc))
+            valid_loss = mean(Tensor(valid_loss))
+            valid_acc = mean(Tensor(valid_acc))
             last_loss_valid, last_acc_valid = valid_loss, valid_acc
             pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
                               'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})

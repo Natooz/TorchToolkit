@@ -8,9 +8,9 @@ setup(
     author='Nathan Fradet',
     url='https://github.com/Natooz/flexformer',
     packages=find_packages(exclude=("test",)),
-    version='1.0.5',
+    version='1.0.6',
     license='MIT',
-    description='A general implementation of Transformer, to play around with attention and build custom architectures',
+    description='Utils function to use with deep learning models, in PyTorch',
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords=[

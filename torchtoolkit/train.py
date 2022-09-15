@@ -91,8 +91,8 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     :param tsb: tensorboard object
     :param log_intvl: number of training steps between every metrics update in the progress bar
     :param pbar_desc: description of the tqdm progress bar (default 'TRAINING')
-    :param acc_func: accuracy function (default: flexformer.metrics.calculate_accuracy in greedy mode)
-    :param valid_metrics: custom metrics to run during validation phase, see flexformer.metrics.Metric (default: None)
+    :param acc_func: accuracy function (default: torchtoolkit.metrics.calculate_accuracy in greedy mode)
+    :param valid_metrics: custom metrics to run during validation phase, see torchtoolkit.metrics.Metric (default: None)
     :param lr_scheduler: learning rate scheduler (default: None)
     :param use_amp: to use Automatic Mixed Precision (AMP) during training (default: True)
     :param gradient_clip: norm of gradient clipping (default: None)

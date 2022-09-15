@@ -4,13 +4,13 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name='flexformer',
+    name='torchtoolkit',
     author='Nathan Fradet',
-    url='https://github.com/Natooz/flexformer',
+    url='https://github.com/Natooz/TorchToolkit',
     packages=find_packages(exclude=("test",)),
-    version='1.0.6',
+    version='0.0.1',
     license='MIT',
-    description='Utils function to use with deep learning models, in PyTorch',
+    description='Useful functions to use with PyTorch',
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords=[
@@ -21,6 +21,7 @@ setup(
     ],
     install_requires=[
         'torch>=1.12.0',
+        'numpy>=1.19.0',
         'tqdm'
     ],
     classifiers=[

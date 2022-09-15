@@ -9,18 +9,15 @@ def seed_everything(seed: int):
 
     :param seed: seed integer
     """
-    import random
+    from random import seed as rdm_seed
     import os
+    from numpy.random import seed as np_seed
 
-    random.seed(seed)
+    rdm_seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     manual_seed(seed)
     cuda.manual_seed_all(seed)
-    try:  # in try as not in setup module requirements
-        import numpy as np
-        np.random.seed(seed)
-    except ImportError:
-        pass
+    np_seed(seed)
 
 
 def create_subsets(dataset: Dataset, split_ratio: List[float]) -> List[Subset]:

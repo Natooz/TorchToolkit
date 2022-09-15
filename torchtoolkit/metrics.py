@@ -1,61 +1,63 @@
-from typing import Union, Callable
+from typing import Union
 from pathlib import Path, PurePath
 from math import prod
 from logging import Logger
 import csv
 import json
+from abc import ABC
 
 import torch
+from numpy import ndarray
 
 
-class Metric:
+class Metric(ABC):
+    """Abstract class to represent any metric.
+
+    :param name: name of the metric
     """
 
-    :param name:
-    :param function:
-    """
+    def __init__(self, name: str):
+        self.name = name  # used in logging (analysis)
+        self.results = []
 
-    def __init__(self, name: str, function: Callable, one_dim: bool = False):
-        self.name = name
-        self.function = function
-        self.results = None
-        self.one_dim = one_dim
+    @property
+    def one_dim(self):
+        if len(self.results) > 0:
+            return False if isinstance(self.results[0], list) else True
+        else:
+            return True  # by default
 
     def __call__(self, *args, **kwargs):
         raise NotImplementedError
 
-    def save(self, out_dir: Union[str, Path, PurePath], reset_after: bool = True):
-        with open(PurePath(out_dir, self.name).with_suffix('.csv'), 'w', newline='') as f:
+    def save(self, out_path: Union[str, Path, PurePath], reset_after: bool = True):
+        with open(out_path, 'w', newline='') as f:
             writer = csv.writer(f)
             if self.one_dim:
                 writer.writerow(self.results)
             else:
-                for track in self.results:
-                    writer.writerow(track)
+                writer.writerows(self.results)
         if reset_after:
             self.reset()
 
-    def _save_json(self, out_dir: Union[str, Path, PurePath], reset_after: bool = True):
-        with open(PurePath(out_dir, self.name).with_suffix('.json'), 'w') as f:
+    def _save_json(self, out_path: Union[str, Path, PurePath], reset_after: bool = True):
+        with open(out_path, 'w') as f:
             json.dump(self.results, f)
         if reset_after:
             self.reset()
 
-    def load(self, file_dir: Union[str, Path, PurePath]):
+    def load(self, file_path: Union[str, Path, PurePath]):
         if len(self.results) > 0:
             self.reset()
-        with open(PurePath(file_dir, self.name).with_suffix('.csv')) as csvfile:
+        with open(file_path) as csvfile:
             reader = csv.reader(csvfile)
-            if self.one_dim:
-                for row in reader:
-                    self.results = [float(i) for i in row]
-            else:
-                self.results = []
-                for row in reader:
-                    self.results.append([float(i) for i in row])
+            for row in reader:
+                self.results.append([float(i) for i in row])
+            if len(self.results) == 1:  # one dim
+                self.results = self.results[0]
 
-    def _load_json(self, file_dir: Union[str, Path, PurePath]):
-        with open(PurePath(file_dir, self.name).with_suffix('.json')) as f:
+    def _load_json(self, file_path: Union[str, Path, PurePath]):
+        with open(file_path) as f:
             self.results = json.load(f)
 
     def analyze(self, logger: Logger, nb_figures: int = 3, *args, **kwargs):
@@ -64,7 +66,6 @@ class Metric:
         elif isinstance(self.results[0], list):
             results = torch.Tensor(self.results)
         else:
-            from numpy import ndarray
             if isinstance(self.results[0], ndarray):
                 results = torch.stack([torch.from_numpy(array) for array in self.results])
             else:
@@ -73,6 +74,18 @@ class Metric:
 
     def reset(self):
         self.results = []
+
+
+class Accuracy(Metric):
+    def __init__(self, mode: str = 'greedy', top_kp: Union[int, float] = None, temperature: Union[int, float] = None):
+        super().__init__('accuracy')
+        self.mode = mode
+        self.top_kp = top_kp
+        self.temperature = temperature
+
+    def __call__(self, result: torch.Tensor, expected: torch.Tensor, *args, **kwargs):
+        self.results.append(calculate_accuracy(result, expected, self.mode, self.top_kp, self.temperature))
+        return self.results[-1]
 
 
 def calculate_accuracy(result: torch.Tensor, expected: torch.Tensor, mode: str = 'greedy',
@@ -140,8 +153,9 @@ def calculate_accuracy(result: torch.Tensor, expected: torch.Tensor, mode: str =
                     su += res[n, t, expected[n, t]]
             else:  # 1 dim
                 su += res[n, expected[n]]
-        return su / nb_of_logits
+        return float(su / nb_of_logits)
+
     elif mode == 'likelihood':
-        return 1 - torch.mean(torch.abs(result - expected))
+        return 1 - float(torch.mean(torch.abs(result - expected)))
 
     return (torch.argmax(result, dim=-1) == expected).sum().item() / nb_of_logits  # greedy, default

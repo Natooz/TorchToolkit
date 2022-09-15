@@ -10,18 +10,22 @@ Feel free to use it, take the code for your projects, and raise an issue if you 
 ```shell
 pip install torchtoolkit
 ```
+It requires Python 3.8 or above.
 
 Simplest example:
 
 ```python
-from torchtoolkit import Transformer
-from torch import randint
+from torchtoolkit.metrics import Accuracy
+from torch import randint, randn
+from pathlib import Path
 
-model = Transformer(num_encoder_layers=8, num_decoder_layers=8, d_model=512, nhead=8, dim_feedforward=2048, dropout=0.2,
-                    num_classes=5000, padding_token=0)
-
-x = randint(low=0, high=5000, size=(400, 16))
-y = model(x, auto_padding_mask=True)
+acc = Accuracy(mode='top_k', top_kp=5)
+for _ in range(10):
+    res = randn((16, 32))
+    expected = randint(0, 32, (16, ))
+    acc(res, expected)  # saving results
+acc.save(Path('path', 'to', 'save', 'file.csv'))
+acc.analyze()
 ```
 
 I built it for my own usage, so you won't find documentation besides the docstring.

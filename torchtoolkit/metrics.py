@@ -1,7 +1,6 @@
-from typing import Union
+from typing import Union, Callable
 from pathlib import Path, PurePath
 from math import prod
-from logging import Logger
 import csv
 import json
 from abc import ABC
@@ -60,7 +59,7 @@ class Metric(ABC):
         with open(file_path) as f:
             self.results = json.load(f)
 
-    def analyze(self, logger: Logger, nb_figures: int = 3, *args, **kwargs):
+    def analyze(self, print_func: Callable = print, nb_figures: int = 3, *args, **kwargs):
         if isinstance(self.results[0], torch.Tensor):
             results = torch.stack(self.results)
         elif isinstance(self.results[0], list):
@@ -70,7 +69,7 @@ class Metric(ABC):
                 results = torch.stack([torch.from_numpy(array) for array in self.results])
             else:
                 results = torch.Tensor(self.results)  # not sure about the results, might raise error
-        logger.debug(f'mean {self.name}: {torch.mean(results):.{nb_figures}f} ± {torch.std(results):.{nb_figures}f}')
+        print_func(f'mean {self.name}: {torch.mean(results):.{nb_figures}f} ± {torch.std(results):.{nb_figures}f}')
 
     def reset(self):
         self.results = []

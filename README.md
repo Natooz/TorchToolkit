@@ -2,7 +2,7 @@
 
 [![PyPI version fury.io](https://badge.fury.io/py/torchtoolkit.svg)](https://pypi.python.org/pypi/torchtoolkit/)
 
-Hi 👋, this is a small Python package which contains useful function to use with PyTorch.
+Hi 👋, this is a small Python package containing useful functions to use with PyTorch.
 It includes [utilities](torchtoolkit/utils.py), [metrics](torchtoolkit/metrics.py) and [sampling](torchtoolkit/sampling.py) methods to use during and after training a model.
 
 Feel free to use it, take the code for your projects, and raise an issue if you have question or a pull request if you want to contribute.

@@ -20,7 +20,7 @@ setup(
         'nlp'
     ],
     install_requires=[
-        'torch>=1.12.0',
+        'torch>=1.10.0',
         'numpy>=1.19.0',
         'tqdm'
     ],

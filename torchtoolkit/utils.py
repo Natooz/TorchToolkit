@@ -28,8 +28,8 @@ def create_subsets(dataset: Dataset, split_ratio: List[float]) -> List[Subset]:
     :param split_ratio: split ratios as a list of float
     :return: the list of subsets
     """
-    assert all(0 <= ratio <= 1. for ratio in split_ratio), f'The split ratios must be comprise within [0,1]'
-    assert sum(split_ratio) <= 1., f'The sum of split ratios must be inferior or equal to 1'
+    assert all(0 <= ratio <= 1. for ratio in split_ratio), 'The split ratios must be comprise within [0,1]'
+    assert sum(split_ratio) <= 1., 'The sum of split ratios must be inferior or equal to 1'
     len_subsets = [int(len(dataset) * ratio) for ratio in split_ratio]
     if sum(split_ratio) != 1.:
         len_subsets.insert(0, len(dataset) - sum(len_subsets))

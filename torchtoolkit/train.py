@@ -19,9 +19,9 @@ from .metrics import Metric, calculate_accuracy
 def select_device(use_cuda: bool = True, log: bool = False) -> device:
     r"""Select the device on which PyTorch will run
 
-    :param use_cuda: specify if you want to run it on the GPU if available (default: True)
-    :param log: will log a warning message if a CUDA device is detected but not used (default: False)
-    :return: cpu or cuda:0
+    :param use_cuda: specify if you want to run it on the GPU if available. (default: True)
+    :param log: will log a warning message if a CUDA device is detected but not used. (default: False)
+    :return: 'cpu' or 'cuda:0' device object.
     """
     if cuda.is_available():
         if use_cuda:
@@ -34,8 +34,8 @@ def select_device(use_cuda: bool = True, log: bool = False) -> device:
 def log_cuda_info(logger: Logger = None, memory_only: bool = False):
     r"""Log the info of GPU
 
-    :param logger: a logger object, if not given this function will print info (default: None)
-    :param memory_only: choose to log only the memory state of GPU (default: False)
+    :param logger: a logger object, if not given this function will print info. (default: None)
+    :param memory_only: choose to log only the memory state of GPU. (default: False)
     """
     log_func = logger.debug if logger is not None else print
     if cuda.is_available():
@@ -52,9 +52,9 @@ def log_cuda_info(logger: Logger = None, memory_only: bool = False):
 def log_model_parameters(model: Module, logger: Logger = None, model_desc: bool = True):
     r"""Log the number of parameters of a model
 
-    :param model: model to analyze
-    :param logger: a logger object, if not given this function will print info (default: None)
-    :param model_desc: also logs the description of the model, i.e. the modules (default: True)
+    :param model: model to analyze.
+    :param logger: a logger object, if not given this function will print info. (default: None)
+    :param model_desc: also logs the description of the model, i.e. the modules. (default: True)
     """
     log_func = logger.debug if logger is not None else print
     if not model_desc:
@@ -71,33 +71,37 @@ def __null_context():
 
 
 def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_train: DataLoader,
-          dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int, tsb: SummaryWriter,
-          log_intvl: int, pbar_desc: str = 'TRAINING', acc_func: Callable = calculate_accuracy,
+          dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int, log_intvl: int,
+          tsb: SummaryWriter = None, pbar_desc: str = 'TRAINING', acc_func: Callable = calculate_accuracy,
           valid_metrics: List[Metric] = None, lr_scheduler=None, use_amp: bool = True, gradient_clip: float = None,
           saving_dir: Path = None):
-    """A generic training function
+    """A generic training function.
+    Every valid_intvl steps, it will run nb_valid_steps validation steps during which the model
+    will be evaluated on the dataloader_valid data, retrieving the average loss and accuracy values.
 
     :param model: model Module to train. It musts implement a 'forward_train' method which takes as argument
                 the input tensor, the target Tensor and the criterion.
                 It returns y (output probabilities), loss (computed with the criterion), y_sampled (y sampled,
-                to be used with metrics)
-    :param criterion: the criterion
-    :param optimizer: the optimizer
-    :param dataloader_train: the DataLoader object which loads training samples
-    :param dataloader_valid:  the DataLoader object which loads validation samples
-    :param nb_steps: number of training steps (model updates)
-    :param valid_intvl: number of training steps between each validation phase
-    :param nb_valid_steps: number of validation steps to perform per validation phase
-    :param tsb: tensorboard object
-    :param log_intvl: number of training steps between every metrics update in the progress bar
-    :param pbar_desc: description of the tqdm progress bar (default 'TRAINING')
-    :param acc_func: accuracy function (default: torchtoolkit.metrics.calculate_accuracy in greedy mode)
-    :param valid_metrics: custom metrics to run during validation phase, see torchtoolkit.metrics.Metric (default: None)
-    :param lr_scheduler: learning rate scheduler (default: None)
-    :param use_amp: to use Automatic Mixed Precision (AMP) during training (default: True)
-    :param gradient_clip: norm of gradient clipping (default: None)
-    :param saving_dir: output directory to save the model state_dict (default: None)
+                to be used with metrics in validation, you can return None if you don't use metrics).
+    :param criterion: the criterion.
+    :param optimizer: the optimizer.
+    :param dataloader_train: the DataLoader object which loads training samples.
+    :param dataloader_valid:  the DataLoader object which loads validation samples.
+    :param nb_steps: number of training steps (model updates).
+    :param valid_intvl: number of training steps between each validation phase.
+    :param nb_valid_steps: number of validation steps to perform per validation phase.
+    :param log_intvl: number of training steps between update of the progress bar.
+    :param tsb: tensorboard object, to project loss, accuracy and metrics. (default: None)
+    :param pbar_desc: description of the tqdm progress bar. (default 'TRAINING')
+    :param acc_func: accuracy function. (default: torchtoolkit.metrics.calculate_accuracy in greedy mode)
+    :param valid_metrics: custom metrics to run during validation phase, torchtoolkit.metrics.Metric. (default: None)
+    :param lr_scheduler: learning rate scheduler. (default: None)
+    :param use_amp: to use Automatic Mixed Precision (AMP) during training. (default: True)
+    :param gradient_clip: norm of gradient clipping. (default: None)
+    :param saving_dir: output directory to save the model state_dict. (default: None)
     """
+    if saving_dir is not None:
+        saving_dir.mkdir(parents=True, exist_ok=True)
     valid_metrics = [] if valid_metrics is None else valid_metrics
     model.train()
     best_valid_loss = float('inf')
@@ -127,9 +131,10 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
         # torch.nn.utils.clip_grad_value_(model.parameters(), 1)
         optimizer.step()  # updates the weights
 
-        tsb.add_scalar('Loss/train', loss.item(), training_step)
-        tsb.add_scalar('Accuracy/train', acc, training_step)  # assuming all groups have the same LR
-        tsb.add_scalar('Learning rate/training', optimizer.param_groups[0]['lr'], training_step)
+        if tsb is not None:
+            tsb.add_scalar('Loss/train', loss.item(), training_step)
+            tsb.add_scalar('Accuracy/train', acc, training_step)  # assuming all groups have the same LR
+            tsb.add_scalar('Learning rate/training', optimizer.param_groups[0]['lr'], training_step)
         if lr_scheduler is not None:
             lr_scheduler.step()
         if training_step % log_intvl == 0:
@@ -159,10 +164,11 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             last_loss_valid, last_acc_valid = valid_loss, valid_acc
             pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
                               'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
-            tsb.add_scalar('Loss/valid', valid_loss, training_step)
-            tsb.add_scalar('Accuracy/valid', valid_acc, training_step)
-            for m, metric in enumerate(valid_metrics):
-                tsb.add_scalar(f'Metrics/{metric.name}', metric.results[-1], training_step)
+            if tsb is not None:
+                tsb.add_scalar('Loss/valid', valid_loss, training_step)
+                tsb.add_scalar('Accuracy/valid', valid_acc, training_step)
+                for m, metric in enumerate(valid_metrics):
+                    tsb.add_scalar(f'Metrics/{metric.name}', metric.results[-1], training_step)
 
             # Save model if loss as decreased
             if saving_dir is not None and valid_loss < best_valid_loss:

@@ -1,6 +1,6 @@
 from typing import List
 
-from torch import cuda, Tensor, randint, full, manual_seed
+from torch import cuda, Tensor, randint, full, arange, manual_seed
 from torch.utils.data import Dataset, Subset, random_split
 
 
@@ -57,3 +57,41 @@ def mask_tensor(x: Tensor, mask_token: int, masking_ratio: float, random_ratio: 
         random_values = randint(*random_range, indices_random.shape)
         mask = mask.scatter_(-1, indices_random, random_values).to(x.device)
     return x.clone().scatter_(-1, indices_mask, mask)
+
+
+def convert_idx_tensor(idx: Tensor) -> List[Tensor]:
+    """Convert a tensor of indices into a list of tensors specifying the dim indices.
+    idx is of any shape (*), and specifies the indices of another tensor x of the same shape + an extra dimension (*,T).
+    idx specifies one element along the last dimension of x, this method will return a list of tensors of shape:
+    [(prod(idx.shape))] * (idx.dim() + 1)
+    It is useful if you want to index tensors.
+    Examples: idx shape --> output shape
+        (2,2) --> [(4), (4), (4)]
+            [[0, 1], [2, 3]] --> [(0, 0, 1, 1), (0, 1, 0, 1), (0, 1, 2, 3)]
+
+        (2,3) --> [(6), (6), (6)]
+            [[0, 1, 2], [3, 4, 5]] --> [(0, 0, 0, 1, 1, 1), (0, 1, 2, 0, 1, 2), (0, 1, 2, 3, 4, 5)]
+
+        (2,2,2) --> [(8), (8), (8), (8)]
+            [[[0, 1], [2, 3]], [[4, 5], [6, 7]]]
+            --> [(0, 0, 0, 0, 1, 1, 1, 1),
+                (0, 0, 1, 1, 0, 0, 1, 1),
+                (0, 1, 0, 1, 0, 1, 0, 1),
+                (0, 1, 2, 3, 4, 5, 6, 7)]
+
+        (3,4,2) --> [(24), (24), (24), (24)]
+            [[[0, 2], [1, 3], [1, 2], [4, 3]],
+            [[0, 2], [1, 3], [1, 2], [4, 3]],
+            [[0, 2], [1, 3], [1, 2], [4, 3]]]
+            --> [(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2),
+                (0, 0, 1, 1, 2, 2, 3, 3, 0, 0, 1, 1, 2, 2, 3, 3, 0, 0, 1, 1, 2, 2, 3, 3),
+                (0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1),
+                ()]
+
+    :param idx: tensor of indices, of shape (*), specifying indexes of another tensor of shape (*,T),
+            with T >= max(idx).
+    :return: list of tensors of shape [(prod(idx.shape))] * (idx.dim() + 1), ready for indexing.
+    """
+    numel = idx.shape.numel()  # Total number of elements to index
+    return [arange(0, idx.shape[d]).repeat_interleave(nb_rep_int := idx.shape[d+1:].numel()).
+            repeat(numel // (idx.shape[d] * nb_rep_int)) for d in range(idx.dim())] + [idx.flatten()]

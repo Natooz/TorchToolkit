@@ -3,29 +3,33 @@ from typing import Tuple, List, Union
 import torch
 
 
-def top_k(x: torch.Tensor, k: int, temperature: float = None) -> torch.Tensor:
+def top_k(x: torch.Tensor, k: int, temperature: float = None, nb_samples: int = 1) -> torch.Tensor:
     r"""Top K sampling
 
     :param x: input tensor of shape (N,C) or (T,N,C)
     :param k: k factor
-    :param temperature: temperature for softmax
+    :param temperature: temperature for softmax. (default: None)
+    :param nb_samples: number of samples to draw. (default: 1)
     :return: sampling results as (N) or (T,N)
     """
+    assert nb_samples < k, 'nb_samples is >= to k, it should be inferior to k to draw enough samples.' \
+                           'If you want nb_samples == k, you might as well use the torch.top_k method.'
     x_copy = x.clone() / temperature if temperature is not None else x.clone()
     indices_to_inf = x < torch.topk(x, k)[0][..., -1, None]
     x_copy[indices_to_inf] = float('-inf')
-    if x.dim() == 2:  # (N,C)
-        return torch.multinomial(torch.softmax(x_copy, -1), 1).squeeze(-1)  # (N)
-    elif x.dim() == 3:  # (T,N,C)
-        return torch.stack([torch.multinomial(torch.softmax(xi, -1), 1).squeeze(-1) for xi in x_copy])  # (T,N)
+    if x.dim() == 2:  # (N,C) --> (N)
+        return torch.multinomial(torch.softmax(x_copy, -1), nb_samples).squeeze(-1)
+    elif x.dim() == 3:  # (T,N,C) --> (T,N)
+        return torch.stack([torch.multinomial(torch.softmax(xi, -1), nb_samples).squeeze(-1) for xi in x_copy])
 
 
-def nucleus(x: torch.Tensor, p: float, temperature: float = None) -> torch.Tensor:
+def nucleus(x: torch.Tensor, p: float, temperature: float = None, nb_samples: int = 1) -> torch.Tensor:
     r"""Nucleus sampling (top p)
 
     :param x: input tensor of shape (C), (N,C)
     :param p: top-p value
-    :param temperature: temperature for softmax
+    :param temperature: temperature for softmax. (default: None)
+    :param nb_samples: number of samples to draw. (default: 1)
     :return: sampling results as scalar tensor or (N)
     """
     if temperature is not None:
@@ -47,7 +51,7 @@ def nucleus(x: torch.Tensor, p: float, temperature: float = None) -> torch.Tenso
         for i, to_remove in enumerate(sorted_indices_to_remove):
             x_copy[i, sorted_indices[i, to_remove]] = float('-inf')
 
-    return torch.multinomial(torch.softmax(x_copy, -1), 1).squeeze(-1)
+    return torch.multinomial(torch.softmax(x_copy, -1), nb_samples).squeeze(-1)
 
 
 def beam_search(logits: torch.Tensor, beam_probs: List[float], x: torch.Tensor = None, nb_beams: int = None,

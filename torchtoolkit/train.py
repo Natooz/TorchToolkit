@@ -70,11 +70,55 @@ def __null_context():
     yield
 
 
+class Iterator:
+    def __init__(self, nb_steps: int = None, min_nb_steps: int = 0, max_nb_steps: int = float('inf'),
+                 min_valid_acc: float = None, pbar_desc: str = 'TRAINING'):
+        """Training iterator class.
+        Can work in two modes:
+            1. Number of steps: will be iterated a fixed number of times
+            2. Min valid accuracy: will be iterated till the model reaches a target validation
+                accuracy value, or if the number of training steps exceeds max_nb_steps.
+
+        :param nb_steps: number of training steps. (default None)
+        :param min_nb_steps: min number of training steps when working with min_valid_acc (default: 0)
+        :param max_nb_steps: max number of training steps when working with min_valid_acc (default: +inf)
+        :param min_valid_acc: minimal validation accuracy value to reach before stopping the iteration. (default None)
+        :param pbar_desc: progress bar description. (default: TRAINING)
+        """
+        assert nb_steps is not None or min_valid_acc is not None, \
+            'You must give at least nb_steps or min_valid_acc argument to construct the iterator'
+        self.nb_steps = nb_steps
+        self.min_nb_steps = min_nb_steps
+        self.max_nb_steps = max_nb_steps
+        self.min_valid_acc = min_valid_acc
+        self.pbar = tqdm(total=max_nb_steps if min_valid_acc is not None else nb_steps, desc=pbar_desc)
+        self.valid_acc = float('-inf')
+
+    def __iter__(self):
+        self.step = 0
+        return self
+
+    def __next__(self):
+        if self.min_valid_acc is not None:  # min valid acc mode
+            if self.valid_acc < self.min_valid_acc or self.min_nb_steps <= self.step < self.max_nb_steps:
+                return self.__iter_update()
+            raise StopIteration
+
+        elif self.step <= self.nb_steps:  # nb_steps mode
+            return self.__iter_update()
+        raise StopIteration
+
+    def __iter_update(self):
+        self.step += 1
+        self.pbar.update(1)
+        return self.step
+
+
 def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_train: DataLoader,
           dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int, log_intvl: int,
           tsb: SummaryWriter = None, pbar_desc: str = 'TRAINING', acc_func: Callable = calculate_accuracy,
-          valid_metrics: List[Metric] = None, lr_scheduler=None, use_amp: bool = True, gradient_clip: float = None,
-          saving_dir: Path = None):
+          valid_metrics: List[Metric] = None, max_nb_steps: int = float('inf'), min_valid_acc: float = None,
+          lr_scheduler=None, use_amp: bool = True, gradient_clip: float = None, saving_dir: Path = None):
     """A generic training function.
     Every valid_intvl steps, it will run nb_valid_steps validation steps during which the model
     will be evaluated on the dataloader_valid data, retrieving the average loss and accuracy values.
@@ -95,6 +139,8 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     :param pbar_desc: description of the tqdm progress bar. (default 'TRAINING')
     :param acc_func: accuracy function. (default: torchtoolkit.metrics.calculate_accuracy in greedy mode)
     :param valid_metrics: custom metrics to run during validation phase, torchtoolkit.metrics.Metric. (default: None)
+    :param max_nb_steps: max number of training steps when working with min_valid_acc (default: +inf)
+    :param min_valid_acc: minimal validation accuracy value to reach before stopping the iteration. (default None)
     :param lr_scheduler: learning rate scheduler. (default: None)
     :param use_amp: to use Automatic Mixed Precision (AMP) during training. (default: True)
     :param gradient_clip: norm of gradient clipping. (default: None)
@@ -112,7 +158,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     if model.device.type == 'cuda':
         empty_cache()  # clears GPU memory, may be required after running several trainings successively
 
-    for training_step in (pbar := tqdm(range(nb_steps), desc=pbar_desc)):
+    for training_step in (iterator := Iterator(nb_steps, nb_steps, max_nb_steps, min_valid_acc, pbar_desc)):
         optimizer.zero_grad()  # Initialise gradients
         try:
             x, target = next(train_iter)  # (N,T)
@@ -138,8 +184,8 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
         if lr_scheduler is not None:
             lr_scheduler.step()
         if training_step % log_intvl == 0:
-            pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
-                              'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
+            iterator.pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
+                                       'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
 
         # Validation
         if training_step % valid_intvl == 0:
@@ -162,8 +208,9 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             valid_loss = mean(Tensor(valid_loss))
             valid_acc = mean(Tensor(valid_acc))
             last_loss_valid, last_acc_valid = valid_loss, valid_acc
-            pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
-                              'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
+            iterator.pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
+                                       'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
+            iterator.valid_acc = max(iterator.valid_acc, float(valid_acc))
             if tsb is not None:
                 tsb.add_scalar('Loss/valid', valid_loss, training_step)
                 tsb.add_scalar('Accuracy/valid', valid_acc, training_step)

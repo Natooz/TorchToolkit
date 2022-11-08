@@ -30,6 +30,11 @@ class MIDIDataset(Dataset):
                  max_seq_len: int, min_seq_len: int, padding_token: int):
         self.samples = []
         files_paths = data_path if isinstance(data_path, list) else list(Path(data_path).glob('**/*.json'))
+        import os
+        print(os.getcwd())
+        print(os.path.realpath(__file__))
+        print(data_path)
+        print(files_paths)
 
         for file_path in tqdm(files_paths, desc='Preparing data'):
             with open(file_path) as json_file:

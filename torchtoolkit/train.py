@@ -1,6 +1,6 @@
 from logging import Logger
 from pathlib import Path
-from typing import List, Callable
+from typing import List, Tuple, Callable
 from contextlib import contextmanager
 from functools import partial
 
@@ -10,7 +10,6 @@ from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torch.cuda import empty_cache
 from tqdm import tqdm
 
 from .metrics import Metric, calculate_accuracy
@@ -62,7 +61,6 @@ def log_model_parameters(model: Module, logger: Logger = None, model_desc: bool 
         log_func(model)
     log_func(f'Number of parameters: {sum(p.numel() for p in model.parameters())}')
     log_func(f'Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
-    log_func(f'Running on {model.device}')
 
 
 @contextmanager
@@ -72,7 +70,7 @@ def __null_context():
 
 class Iterator:
     def __init__(self, nb_steps: int = None, min_nb_steps: int = 0, max_nb_steps: int = float('inf'),
-                 min_valid_acc: float = None, pbar_desc: str = 'TRAINING'):
+                 min_valid_acc: Tuple[float, int] = (None, None), pbar_desc: str = 'TRAINING'):
         """Training iterator class.
         Can work in two modes:
             1. Number of steps: will be iterated a fixed number of times
@@ -82,29 +80,36 @@ class Iterator:
         :param nb_steps: number of training steps. (default None)
         :param min_nb_steps: min number of training steps when working with min_valid_acc (default: 0)
         :param max_nb_steps: max number of training steps when working with min_valid_acc (default: +inf)
-        :param min_valid_acc: minimal validation accuracy value to reach before stopping the iteration. (default None)
+        :param min_valid_acc: a set of parameters to use to train a model in "validation accuracy mode".
+                        The first is the minimum valid accuracy value to reach,
+                        the second is the number of past valid accuracy values to use to compute the average validation
+                        accuracy. If this average is > to the minimum valid acc to reach, the training can be stopped
+                        if the number of steps is > to min_nb_steps given above.
+                        (default: (None, None))
+        minimal validation accuracy value to reach before stopping the iteration. (default None)
+
         :param pbar_desc: progress bar description. (default: TRAINING)
         """
-        assert nb_steps is not None or min_valid_acc is not None, \
+        assert nb_steps is not None or all(i is not None for i in min_valid_acc), \
             'You must give at least nb_steps or min_valid_acc argument to construct the iterator'
         self.nb_steps = nb_steps
         self.min_nb_steps = min_nb_steps
         self.max_nb_steps = max_nb_steps
-        self.min_valid_acc = min_valid_acc
-        self.pbar = tqdm(total=max_nb_steps if min_valid_acc is not None else nb_steps, desc=pbar_desc)
-        self.valid_acc = float('-inf')
+        self._min_valid_acc, self._valid_acc_nb_steps = min_valid_acc
+        self._past_valid_acc = []
+        self.pbar = tqdm(total=max_nb_steps if self._min_valid_acc is not None else nb_steps, desc=pbar_desc)
 
     def __iter__(self):
         self.step = 0
         return self
 
     def __next__(self):
-        if self.min_valid_acc is not None:  # min valid acc mode
-            if self.valid_acc < self.min_valid_acc or self.min_nb_steps <= self.step < self.max_nb_steps:
+        if self._min_valid_acc is not None:  # min valid acc mode
+            if self.__is_past_valid_acc_ok() or self.min_nb_steps < self.step < self.max_nb_steps:
                 return self.__iter_update()
             raise StopIteration
 
-        elif self.step <= self.nb_steps:  # nb_steps mode
+        elif self.step < self.nb_steps:  # nb_steps mode
             return self.__iter_update()
         raise StopIteration
 
@@ -113,12 +118,25 @@ class Iterator:
         self.pbar.update(1)
         return self.step
 
+    def __is_past_valid_acc_ok(self) -> bool:
+        if len(self._past_valid_acc) < self._valid_acc_nb_steps:
+            return False
+        return (sum(self._past_valid_acc[-self._valid_acc_nb_steps:]) / self._valid_acc_nb_steps) > self._min_valid_acc
+
+    def update_valid_acc(self, valid_acc: float):
+        """Stores the validation accuracy given in argument. Need to be called at each validation step in order
+        to keep track, and compute the average value of the last steps to stop or keep training.
+
+        :param valid_acc: validation accuracy to store.
+        """
+        self._past_valid_acc.append(valid_acc)
+
 
 def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_train: DataLoader,
           dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int, log_intvl: int,
           tsb: SummaryWriter = None, pbar_desc: str = 'TRAINING', acc_func: Callable = calculate_accuracy,
-          valid_metrics: List[Metric] = None, max_nb_steps: int = float('inf'), min_valid_acc: float = None,
-          lr_scheduler=None, use_amp: bool = True, gradient_clip: float = None, saving_dir: Path = None):
+          valid_metrics: List[Metric] = None, iterator_kwargs: dict = None, lr_scheduler=None, device_: device = None,
+          use_amp: bool = True, gradient_clip: float = None, saving_dir: Path = None):
     """A generic training function.
     Every valid_intvl steps, it will run nb_valid_steps validation steps during which the model
     will be evaluated on the dataloader_valid data, retrieving the average loss and accuracy values.
@@ -139,26 +157,40 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     :param pbar_desc: description of the tqdm progress bar. (default 'TRAINING')
     :param acc_func: accuracy function. (default: torchtoolkit.metrics.calculate_accuracy in greedy mode)
     :param valid_metrics: custom metrics to run during validation phase, torchtoolkit.metrics.Metric. (default: None)
-    :param max_nb_steps: max number of training steps when working with min_valid_acc (default: +inf)
-    :param min_valid_acc: minimal validation accuracy value to reach before stopping the iteration. (default None)
+    :param iterator_kwargs: parameters for the training iterator, to be given as a dictionary as:
+                - 'min_nb_steps': the minimum number of training steps to perform (default: 0)
+                - 'max_nb_steps': the maximum number of training step (default: +inf)
+                - 'min_valid_acc': Tuple[float, int] , a set of parameters to use
+                        to training a model in "validation accuracy mode".
+                        The first is the minimum valid accuracy value to reach,
+                        the second is the number of past valid accuracy values to use to compute the average validation
+                        accuracy. If this average is > to the minimum valid acc to reach, the training can be stopped
+                        if the number of steps is > to min_nb_steps given above.
+                        (default: (None, None))
+                default value of iterator_params is None, leading to the default value of the Iterator class.
     :param lr_scheduler: learning rate scheduler. (default: None)
+    :param device_: device to run on (default: None --> select_device(use_cuda=True))
     :param use_amp: to use Automatic Mixed Precision (AMP) during training. (default: True)
     :param gradient_clip: norm of gradient clipping. (default: None)
     :param saving_dir: output directory to save the model state_dict. (default: None)
     """
     if saving_dir is not None:
         saving_dir.mkdir(parents=True, exist_ok=True)
+    if iterator_kwargs is None:
+        iterator_kwargs = {}
+    device_ = device_ if device_ is not None else select_device(use_cuda=True)
     valid_metrics = [] if valid_metrics is None else valid_metrics
+    model = model.to(device_)
     model.train()
     best_valid_loss = float('inf')
     last_loss_valid = last_acc_valid = 0  # use for pbar postfix
     train_iter = iter(dataloader_train)
     valid_iter = iter(dataloader_valid)
     amp_context = __null_context if not use_amp else partial(autocast, 'cuda')
-    if model.device.type == 'cuda':
-        empty_cache()  # clears GPU memory, may be required after running several trainings successively
+    if device_.type == 'cuda':
+        cuda.empty_cache()  # clears GPU memory, may be required after running several trainings successively
 
-    for training_step in (iterator := Iterator(nb_steps, nb_steps, max_nb_steps, min_valid_acc, pbar_desc)):
+    for training_step in (iterator := Iterator(nb_steps, **iterator_kwargs, pbar_desc=pbar_desc)):
         optimizer.zero_grad()  # Initialise gradients
         try:
             x, target = next(train_iter)  # (N,T)
@@ -166,7 +198,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             train_iter = iter(dataloader_train)
             x, target = next(train_iter)
         with amp_context():
-            x, target = x.to(model.device), target.to(model.device)
+            x, target = x.to(device_), target.to(device_)
             y, loss, _ = model.forward_train(x, target, criterion)  # (N,T,C)
         acc = acc_func(y, target)
         last_loss_train, last_acc_train = loss.item(), acc
@@ -198,7 +230,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
                     valid_iter = iter(dataloader_valid)
                     x, target = next(valid_iter)
                 with no_grad():
-                    x, target = x.to(model.device), target.to(model.device)
+                    x, target = x.to(device_), target.to(device_)
                     y, loss, y_sampled = model.forward_train(x, target, criterion)  # (N,C,T)
                     valid_loss.append(loss.item())
                     valid_acc.append(acc_func(y, target))
@@ -210,7 +242,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             last_loss_valid, last_acc_valid = valid_loss, valid_acc
             iterator.pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
                                        'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
-            iterator.valid_acc = max(iterator.valid_acc, float(valid_acc))
+            iterator.update_valid_acc(float(valid_acc))
             if tsb is not None:
                 tsb.add_scalar('Loss/valid', valid_loss, training_step)
                 tsb.add_scalar('Accuracy/valid', valid_acc, training_step)

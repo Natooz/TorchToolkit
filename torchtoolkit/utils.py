@@ -1,7 +1,6 @@
 from typing import List
 
 from torch import cuda, Tensor, randint, full, arange, manual_seed
-from torch.utils.data import Dataset, Subset, random_split
 
 
 def seed_everything(seed: int):
@@ -18,23 +17,6 @@ def seed_everything(seed: int):
     manual_seed(seed)
     cuda.manual_seed_all(seed)
     np_seed(seed)
-
-
-def create_subsets(dataset: Dataset, split_ratio: List[float]) -> List[Subset]:
-    r"""Create subsets of a dataset following split ratios.
-    if sum(split_ratio) != 1, the remaining portion will be inserted as the first subset
-
-    :param dataset: Dataset object, must implement the __len__ magic method.
-    :param split_ratio: split ratios as a list of float
-    :return: the list of subsets
-    """
-    assert all(0 <= ratio <= 1. for ratio in split_ratio), 'The split ratios must be comprise within [0,1]'
-    assert sum(split_ratio) <= 1., 'The sum of split ratios must be inferior or equal to 1'
-    len_subsets = [int(len(dataset) * ratio) for ratio in split_ratio]
-    if sum(split_ratio) != 1.:
-        len_subsets.insert(0, len(dataset) - sum(len_subsets))
-    subsets = random_split(dataset, len_subsets)
-    return subsets
 
 
 def mask_tensor(x: Tensor, mask_token: int, masking_ratio: float, random_ratio: float = 0.,

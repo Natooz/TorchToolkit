@@ -1,6 +1,6 @@
 import torch
 
-from torchtoolkit.utils import convert_idx_tensor, seed_everything
+from torchtoolkit.utils import convert_idx_tensor, seed_everything, mask_tensor, randomize_tensor
 
 
 def test_convert_idx_tensor():
@@ -32,6 +32,18 @@ def test_convert_idx_tensor():
 
 def test_seed_everything():
     seed_everything(777)
+
+
+def test_mask_tensor():
+    x = torch.randint(0, 50, (10, 4, 24))
+    y = mask_tensor(x, 2, 0.5)
+    assert x.shape == y.shape
+
+
+def test_randomize_tensor():
+    x = torch.randint(0, 50, (10, 4, 24))
+    y = randomize_tensor(x, (1, 9), 0.5)
+    assert x.shape == y.shape
 
 
 if __name__ == '__main__':

@@ -1,4 +1,5 @@
-from typing import List
+from typing import List, Tuple
+from random import uniform
 
 from torch import cuda, Tensor, randint, full, arange, manual_seed
 
@@ -19,26 +20,39 @@ def seed_everything(seed: int):
     np_seed(seed)
 
 
-def mask_tensor(x: Tensor, mask_token: int, masking_ratio: float, random_ratio: float = 0.,
-                random_range: tuple = None):
+def mask_tensor(x: Tensor, mask_token: int, masking_ratio: float):
     r"""Mask a tensor, i.e. randomly replace tokens with a special masking token. It also allows to
     randomize a ratio of tokens.
 
-    :param x: tensor to mask
+    :param x: tensor to mask, of any shape, the last dim will be randomized.
     :param mask_token: the mask token
     :param masking_ratio: ratio of tokens to mask, has to be comprised within [O,1]
-    :param random_ratio: ratio of randomized tokens (within the masking ratio), has to be comprised within [O,1]
-                        (default: 0.)
-    :param random_range: token range of random tokens (default: None)
     :return: the masked tensor
     """
-    indices_mask = randint(1, x.shape[1] - 1, (x.shape[0], int(masking_ratio * x.shape[1]))).to(x.device)
-    mask = full(indices_mask.shape, mask_token)
-    if random_ratio > 0:
-        indices_random = randint(0, mask.shape[1], (x.shape[0], int(mask.shape[1] * random_ratio)))
-        random_values = randint(*random_range, indices_random.shape)
-        mask = mask.scatter_(-1, indices_random, random_values).to(x.device)
-    return x.clone().scatter_(-1, indices_mask, mask)
+    mask_shape = (*x.shape[:-1], int(x.shape[-1] * masking_ratio))
+    mask = full(mask_shape, mask_token)
+    indices_to_mask = randint(1, x.shape[-1] - 1, mask_shape).to(x.device)
+    return x.clone().scatter_(-1, indices_to_mask, mask)
+
+
+def randomize_tensor(x: Tensor, random_range: Tuple[int, int], random_ratio: float = None,
+                     random_ratio_range: Tuple[float, float] = (0.1, 1)):
+    r"""Randomize a token sequence. It replaces randomly selected tokens (accordingly to random_ratio
+    and random_ratio_range) by random values within random_range.
+
+    :param x: tensor to randomize, of any shape, the last dim will be randomized.
+    :param random_range: token range of random tokens
+    :param random_ratio: ratio of randomized tokens (within the masking ratio), has to be comprised within [O,1]
+    :param random_ratio_range: if random_ratio is None, a random ratio will randomly be chosen between. You
+                            can set a range for this ratio, between 0 and 1 (default: (0, 1))
+    :return: the randomized tensor
+    """
+    if random_ratio is None:  # randomly pick a ratio from the ratio range
+        random_ratio = uniform(*random_ratio_range)
+    mask_shape = (*x.shape[:-1], int(x.shape[-1] * random_ratio))
+    indices_to_randomize = randint(0, x.shape[0], mask_shape).to(x.device)
+    random_values = randint(random_range[0], random_range[1], mask_shape)
+    return x.clone().scatter_(-1, indices_to_randomize, random_values)
 
 
 def convert_idx_tensor(idx: Tensor) -> List[Tensor]:

@@ -33,10 +33,11 @@ def select_device(use_cuda: bool = True, log: bool = False) -> device:
 def log_cuda_info(logger: Logger = None, memory_only: bool = False):
     r"""Log the info of GPU
 
-    :param logger: a logger object, if not given this function will print info. (default: None)
+    :param logger: a Logger object. By default, this method will log at the INFO level.
+            If no Logger is given, `print` (stdout) will be used. (default: None)
     :param memory_only: choose to log only the memory state of GPU. (default: False)
     """
-    log_func = logger.debug if logger is not None else print
+    log_func = logger.info if logger is not None else print
     if cuda.is_available():
         if not memory_only:
             log_func('******** GPU INFO ********')
@@ -52,10 +53,11 @@ def log_model_parameters(model: Module, logger: Logger = None, model_desc: bool 
     r"""Log the number of parameters of a model
 
     :param model: model to analyze.
-    :param logger: a logger object, if not given this function will print info. (default: None)
+    :param logger: a Logger object. By default, this method will log at the INFO level.
+            If no Logger is given, `print` (stdout) will be used. (default: None)
     :param model_desc: also logs the description of the model, i.e. the modules. (default: True)
     """
-    log_func = logger.debug if logger is not None else print
+    log_func = logger.info if logger is not None else print
     if not model_desc:
         log_func('******** MODEL INFO ********')
         log_func(model)

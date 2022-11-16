@@ -4,7 +4,7 @@ from typing import List, Tuple, Callable
 from contextlib import contextmanager
 from functools import partial
 
-from torch import Tensor, device, cuda, autocast, mean, no_grad
+from torch import Tensor, device, cuda, autocast, mean, no_grad, save
 from torch.nn.modules import Module
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
@@ -87,7 +87,6 @@ class Iterator:
                         if the number of steps is > to min_nb_steps given above.
                         (default: (None, None))
         minimal validation accuracy value to reach before stopping the iteration. (default None)
-
         :param pbar_desc: progress bar description. (default: TRAINING)
         """
         assert nb_steps is not None or all(i is not None for i in min_valid_acc), \
@@ -133,10 +132,11 @@ class Iterator:
 
 
 def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_train: DataLoader,
-          dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int, log_intvl: int,
-          tsb: SummaryWriter = None, pbar_desc: str = 'TRAINING', acc_func: Callable = calculate_accuracy,
-          valid_metrics: List[Metric] = None, iterator_kwargs: dict = None, lr_scheduler=None, device_: device = None,
-          use_amp: bool = True, gradient_clip: float = None, saving_dir: Path = None):
+          dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int,
+          tsb: SummaryWriter = None, pbar_desc: str = 'TRAINING', logger: Logger = None, log_intvl: int = 10,
+          acc_func: Callable = calculate_accuracy, valid_metrics: List[Metric] = None, iterator_kwargs: dict = None,
+          lr_scheduler=None, device_: device = None, use_amp: bool = True, gradient_clip: float = None,
+          saving_dir: Path = None):
     """A generic training function.
     Every valid_intvl steps, it will run nb_valid_steps validation steps during which the model
     will be evaluated on the dataloader_valid data, retrieving the average loss and accuracy values.
@@ -152,9 +152,14 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     :param nb_steps: number of training steps (model updates).
     :param valid_intvl: number of training steps between each validation phase.
     :param nb_valid_steps: number of validation steps to perform per validation phase.
-    :param log_intvl: number of training steps between update of the progress bar.
     :param tsb: tensorboard object, to project loss, accuracy and metrics. (default: None)
     :param pbar_desc: description of the tqdm progress bar. (default 'TRAINING')
+    :param logger: Logger object, used to log the progress bar messages. If given,
+                this method will `debug` the progress bar, at an interval of log_intvl training
+                steps (see arg below). If you want to log the progress states in a file
+                but without printing them, make sure that the logger has a StreamHandler at
+                the INFO level and a FileHandler at DEBUG level. (default: None)
+    :param log_intvl: number of training steps between update of the progress bar. (default: 10)
     :param acc_func: accuracy function. (default: torchtoolkit.metrics.calculate_accuracy in greedy mode)
     :param valid_metrics: custom metrics to run during validation phase, torchtoolkit.metrics.Metric. (default: None)
     :param iterator_kwargs: parameters for the training iterator, to be given as a dictionary as:
@@ -215,9 +220,6 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             tsb.add_scalar('Learning rate/training', optimizer.param_groups[0]['lr'], training_step)
         if lr_scheduler is not None:
             lr_scheduler.step()
-        if training_step % log_intvl == 0:
-            iterator.pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
-                                       'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
 
         # Validation
         if training_step % valid_intvl == 0:
@@ -240,8 +242,6 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             valid_loss = mean(Tensor(valid_loss))
             valid_acc = mean(Tensor(valid_acc))
             last_loss_valid, last_acc_valid = valid_loss, valid_acc
-            iterator.pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
-                                       'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'})
             iterator.update_valid_acc(float(valid_acc))
             if tsb is not None:
                 tsb.add_scalar('Loss/valid', valid_loss, training_step)
@@ -252,6 +252,18 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             # Save model if loss as decreased
             if saving_dir is not None and valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
-                model.save_checkpoint(saving_dir / 'checkpoint.pt.tar', optimizer.state_dict())
+                save({'training_step': training_step,
+                      'model_state_dict': model.state_dict(),
+                      'optimizer_state_dict': optimizer.state_dict(),
+                      'train_loss': last_loss_train, 'train_acc': last_acc_train,
+                      'valid_loss': last_loss_valid, 'valid_acc': last_acc_valid},
+                     saving_dir / 'checkpoint.pt.tar')
             model.train()
+
+        iterator.pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
+                                   'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'},
+                                  refresh=False)
+        if logger is not None and training_step % log_intvl == 0:
+            logger.debug(str(iterator.pbar))
+
     model.eval()

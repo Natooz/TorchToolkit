@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import torch
+from torch import randn, randint
 
 from torchtoolkit.metrics import Accuracy
 
@@ -16,13 +16,13 @@ def test_accuracy_metric():
     for mode, params in modes:
         metric = Accuracy(mode=mode, **params)
         for _ in range(10):
-            res = torch.randn((16, 32))
-            expected = torch.randn((16, 32)) if mode == 'likelihood' else torch.randint(0, 32, (16, ))
+            res = randn((16, 32))
+            expected = randn((16, 32)) if mode == 'likelihood' else randint(0, 32, (16, ))
             metric(res, expected)  # saving results
         assert_equal(metric, f'acc_{mode}.csv')
 
     metric = Accuracy('none')
-    metric.results = torch.randn((10, 10)).tolist()
+    metric.results = randn((10, 10)).tolist()
     assert_equal(metric, 'acc_none.csv')
 
 

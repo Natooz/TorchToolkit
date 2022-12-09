@@ -137,7 +137,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
           dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int,
           tsb: SummaryWriter = None, pbar_desc: str = 'TRAINING', logger: Logger = None, log_intvl: int = 10,
           acc_func: Callable = calculate_accuracy, valid_metrics: List[Metric] = None, iterator_kwargs: dict = None,
-          lr_scheduler=None, device_: device = None, use_amp: bool = True, gradient_clip: float = None,
+          lr_scheduler=None, device_: device = None, use_amp: bool = True, gradient_clip_norm: float = None,
           saving_dir: Path = None):
     """A generic training function.
     Every valid_intvl steps, it will run nb_valid_steps validation steps during which the model
@@ -178,7 +178,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
     :param lr_scheduler: learning rate scheduler. (default: None)
     :param device_: device to run on (default: None --> select_device(use_cuda=True))
     :param use_amp: to use Automatic Mixed Precision (AMP) during training. (default: True)
-    :param gradient_clip: norm of gradient clipping. (default: None)
+    :param gradient_clip_norm: norm of gradient clipping. (default: None)
     :param saving_dir: output directory to save the model state_dict. (default: None)
     """
     if saving_dir is not None:
@@ -211,8 +211,8 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
         last_loss_train, last_acc_train = loss.item(), acc
 
         loss.backward()  # stores / accumulate gradients in the graph
-        if gradient_clip is not None:
-            clip_grad_norm_(model.parameters(), gradient_clip)
+        if gradient_clip_norm is not None:
+            clip_grad_norm_(model.parameters(), gradient_clip_norm)
         # torch.nn.utils.clip_grad_value_(model.parameters(), 1)
         optimizer.step()  # updates the weights
 
@@ -266,6 +266,6 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
                                    'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}'},
                                   refresh=False)
         if logger is not None and training_step % log_intvl == 0:
-            logger.debug(str(iterator.pbar))
+            logger.debug(str(iterator.pbar).encode('utf-8'))
 
     model.eval()

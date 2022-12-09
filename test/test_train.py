@@ -65,7 +65,7 @@ def test_train():
     log_cuda_info(logger=logger)
     log_model_parameters(model, logger=logger)
     train(model, criterion, optimizer, dataloader_train, dataloader_valid, 100, 10, 10, tensorboard, logger=logger,
-          log_intvl=10, lr_scheduler=lr_scheduler, gradient_clip=0.1, saving_dir=Path())
+          log_intvl=10, lr_scheduler=lr_scheduler, gradient_clip_norm=0.1, saving_dir=Path())
 
 
 if __name__ == '__main__':

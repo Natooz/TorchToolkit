@@ -4,7 +4,7 @@ from typing import List, Tuple, Callable
 from contextlib import contextmanager
 from functools import partial
 
-from torch import Tensor, device, cuda, autocast, mean, no_grad, save
+from torch import Tensor, device as device_, cuda, autocast, mean, no_grad, save
 from torch.nn.modules import Module
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
@@ -15,7 +15,7 @@ from tqdm import tqdm
 from .metrics import Metric, calculate_accuracy
 
 
-def select_device(use_cuda: bool = True, log: bool = False) -> device:
+def select_device(use_cuda: bool = True, log: bool = False) -> device_:
     r"""Select the device on which PyTorch will run
 
     :param use_cuda: specify if you want to run it on the GPU if available. (default: True)
@@ -24,10 +24,10 @@ def select_device(use_cuda: bool = True, log: bool = False) -> device:
     """
     if cuda.is_available():
         if use_cuda:
-            return device('cuda:0')
+            return device_('cuda:0')
         elif log:
             print('WARNING: You have a CUDA device, you should probably run with it')
-    return device('cpu')
+    return device_('cpu')
 
 
 def log_cuda_info(logger: Logger = None, memory_only: bool = False):
@@ -137,7 +137,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
           dataloader_valid: DataLoader, nb_steps: int, valid_intvl: int, nb_valid_steps: int,
           tsb: SummaryWriter = None, pbar_desc: str = 'TRAINING', logger: Logger = None, log_intvl: int = 10,
           acc_func: Callable = calculate_accuracy, valid_metrics: List[Metric] = None, iterator_kwargs: dict = None,
-          lr_scheduler=None, device_: device = None, use_amp: bool = True, gradient_clip_norm: float = None,
+          lr_scheduler=None, device: device_ = None, use_amp: bool = True, gradient_clip_norm: float = None,
           saving_dir: Path = None):
     """A generic training function.
     Every valid_intvl steps, it will run nb_valid_steps validation steps during which the model
@@ -176,7 +176,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
                         (default: (None, None))
                 default value of iterator_params is None, leading to the default value of the Iterator class.
     :param lr_scheduler: learning rate scheduler. (default: None)
-    :param device_: device to run on (default: None --> select_device(use_cuda=True))
+    :param device: device to run on (default: None --> select_device(use_cuda=True))
     :param use_amp: to use Automatic Mixed Precision (AMP) during training. (default: True)
     :param gradient_clip_norm: norm of gradient clipping. (default: None)
     :param saving_dir: output directory to save the model state_dict. (default: None)
@@ -185,16 +185,16 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
         saving_dir.mkdir(parents=True, exist_ok=True)
     if iterator_kwargs is None:
         iterator_kwargs = {}
-    device_ = device_ if device_ is not None else select_device(use_cuda=True)
+    device = device if device is not None else select_device(use_cuda=True)
     valid_metrics = [] if valid_metrics is None else valid_metrics
-    model = model.to(device_)
+    model = model.to(device)
     model.train()
     best_valid_loss = float('inf')
     last_loss_valid = last_acc_valid = 0  # use for pbar postfix
     train_iter = iter(dataloader_train)
     valid_iter = iter(dataloader_valid)
     amp_context = __null_context if not use_amp else partial(autocast, 'cuda')
-    if device_.type == 'cuda':
+    if device.type == 'cuda':
         cuda.empty_cache()  # clears GPU memory, may be required after running several trainings successively
 
     for training_step in (iterator := Iterator(nb_steps, **iterator_kwargs, pbar_desc=pbar_desc)):
@@ -205,7 +205,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             train_iter = iter(dataloader_train)
             x, target = next(train_iter)
         with amp_context():
-            x, target = x.to(device_), target.to(device_)
+            x, target = x.to(device), target.to(device)
             y, loss, _ = model.forward_train(x, target, criterion)  # (N,T,C)
         acc = acc_func(y, target)
         last_loss_train, last_acc_train = loss.item(), acc
@@ -234,7 +234,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
                     valid_iter = iter(dataloader_valid)
                     x, target = next(valid_iter)
                 with no_grad():
-                    x, target = x.to(device_), target.to(device_)
+                    x, target = x.to(device), target.to(device)
                     y, loss, y_sampled = model.forward_train(x, target, criterion)  # (N,C,T)
                     valid_loss.append(loss.item())
                     valid_acc.append(acc_func(y, target))

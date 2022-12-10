@@ -11,7 +11,7 @@ def test_train():
     from torch.utils.tensorboard import SummaryWriter
     from torch.utils.data import Dataset, DataLoader
 
-    from torchtoolkit.train import train, log_cuda_info, log_model_parameters
+    from torchtoolkit.train import train, log_cuda_info, log_model_parameters, ValidAccModeParameters
     from torchtoolkit.data import create_subsets
     from torchtoolkit.sampling import top_k
 
@@ -66,6 +66,10 @@ def test_train():
     log_model_parameters(model, logger=logger)
     train(model, criterion, optimizer, dataloader_train, dataloader_valid, 100, 10, 10, tensorboard, logger=logger,
           log_intvl=10, lr_scheduler=lr_scheduler, gradient_clip_norm=0.1, saving_dir=Path())
+
+    train(model, criterion, optimizer, dataloader_train, dataloader_valid, 50, 10, 10, tensorboard, logger=logger,
+          log_intvl=10, lr_scheduler=lr_scheduler, gradient_clip_norm=0.1, saving_dir=Path(),
+          iterator_kwargs={'early_stop_steps': 15, 'valid_acc_mode_parameters': ValidAccModeParameters(0.8, 5)})
 
 
 if __name__ == '__main__':

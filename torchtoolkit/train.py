@@ -285,7 +285,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
 
         iterator.pbar.set_postfix({'train_loss': f'{last_loss_train:.4f}', 'train_acc': f'{last_acc_train:.4f}',
                                    'valid_loss': f'{last_loss_valid:.4f}', 'valid_acc': f'{last_acc_valid:.4f}',
-                                   'best_valid_acc_step': best_valid_loss_step},
+                                   'best_valid_loss_step': best_valid_loss_step},
                                   refresh=False)
         if logger is not None and training_step % log_intvl == 0:
             logger.debug(str(iterator.pbar).encode('utf-8'))

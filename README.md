@@ -1,6 +1,8 @@
 # TorchToolkit
 
 [![PyPI version fury.io](https://badge.fury.io/py/torchtoolkit.svg)](https://pypi.python.org/pypi/torchtoolkit/)
+[![GitHub workflow](https://img.shields.io/github/workflow/status/Natooz/MidiTok/Testing)](https://github.com/Natooz/TorchToolkit/actions)
+[![GitHub license](https://img.shields.io/github/license/Natooz/MidiTok.svg)](https://github.com/Natooz/TorchToolkit/blob/main/LICENSE)
 
 Hi 👋, this is a small Python package containing useful functions to use with PyTorch.
 It includes [utilities](torchtoolkit/utils.py), [metrics](torchtoolkit/metrics.py) and [sampling](torchtoolkit/sampling.py) methods to use during and after training a model.

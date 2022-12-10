@@ -8,7 +8,7 @@ setup(
     author='Nathan Fradet',
     url='https://github.com/Natooz/TorchToolkit',
     packages=find_packages(exclude=("test",)),
-    version='0.0.4',
+    version='0.0.5',
     license='MIT',
     description='Useful functions to use with PyTorch',
     long_description=long_description,

@@ -100,7 +100,7 @@ class Iterator:
         :param nb_steps: number of training steps. (default None)
         :param valid_acc_mode_parameters: parameters to use to train a model in "validation accuracy mode".
                         (default: None)
-        :param early_stop_steps: will stop training if the validation accuracy did not increase in this last
+        :param early_stop_steps: will stop training if the validation loss did not decrease in this last
                                 number of training steps (default: inf)
         :param pbar_desc: progress bar description. (default: TRAINING)
         """
@@ -109,7 +109,7 @@ class Iterator:
         self.nb_steps = nb_steps
         self.valid_acc_params = valid_acc_mode_parameters
         self._past_valid_acc = []
-        self.best_valid_step = 0  # for early stop
+        self.best_valid_loss_step = 0  # for early stop
         self._early_stop_steps = early_stop_steps
         self.pbar = tqdm(total=nb_steps if self.valid_acc_params is None else self.valid_acc_params.max_nb_steps,
                          desc=pbar_desc)
@@ -120,7 +120,7 @@ class Iterator:
 
     def __next__(self):
         # Early stop if valid acc did not increase
-        if self._early_stop_steps is not None and self.step - self.best_valid_step >= self._early_stop_steps:
+        if self._early_stop_steps is not None and self.step - self.best_valid_loss_step >= self._early_stop_steps:
             raise StopIteration
 
         # Validation target mode
@@ -274,7 +274,7 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
             if saving_dir is not None and valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
                 best_valid_loss_step = training_step
-                iterator.best_valid_step = training_step
+                iterator.best_valid_loss_step = training_step
                 save({'training_step': training_step,
                       'model_state_dict': model.state_dict(),
                       'optimizer_state_dict': optimizer.state_dict(),

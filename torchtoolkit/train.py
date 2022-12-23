@@ -112,7 +112,7 @@ class Iterator:
         self.best_valid_loss_step = 0  # for early stop
         self._early_stop_steps = early_stop_steps
         self.pbar = tqdm(total=nb_steps if self.valid_acc_params is None else self.valid_acc_params.max_nb_steps,
-                         desc=pbar_desc)
+                         desc=pbar_desc, ascii=' >=')
 
     def __iter__(self):
         self.step = 0
@@ -288,6 +288,6 @@ def train(model: Module, criterion: Module, optimizer: Optimizer, dataloader_tra
                                    'best_valid_loss_step': best_valid_loss_step},
                                   refresh=False)
         if logger is not None and training_step % log_intvl == 0:
-            logger.debug(str(iterator.pbar).encode('utf-8'))
+            logger.debug(str(iterator.pbar))
 
     model.eval()

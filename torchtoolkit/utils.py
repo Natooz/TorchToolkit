@@ -1,7 +1,7 @@
 from typing import List, Tuple
 from random import uniform
 
-from torch import cuda, Tensor, randint, full, arange, manual_seed
+from torch import cuda, Tensor, randint, full, cat, arange, manual_seed, randperm, multinomial, where
 
 
 def seed_everything(seed: int):
@@ -91,3 +91,25 @@ def convert_idx_tensor(idx: Tensor) -> List[Tensor]:
     numel = idx.shape.numel()  # Total number of elements to index
     return [arange(0, idx.shape[d]).repeat_interleave(nb_rep_int := idx.shape[d+1:].numel()).
             repeat(numel // (idx.shape[d] * nb_rep_int)) for d in range(idx.dim())] + [idx.flatten()]
+
+
+def full_randperm(nb_permut: int) -> Tensor:
+    """Returns random permutations, as with torch.randperm, but making sure that
+    all indices are moved.
+    As for PyTorch v1.13, randperm can return permutations with indices no permuting,
+    i.e. where permutations == torch.arange(len(permutations)) has True values.
+
+    :param nb_permut: number of permutations
+    :return: permutations with all indices being permuted
+    """
+    permutations = randperm(nb_permut)
+    while any(equal := permutations == arange(nb_permut)):
+        idx_equal = where(equal)[0]  # list of idx to mix together
+        if len(idx_equal) == 1:
+            idx_to_swap = multinomial(cat([permutations[:idx_equal[0]],
+                                           permutations[idx_equal[0] + 1:]]).float(), 1).long()
+            permutations[idx_equal[0]] = idx_to_swap
+            permutations[idx_to_swap] = idx_equal[0]
+        else:
+            permutations[idx_equal] = permutations[idx_equal[randperm(len(idx_equal))]]  # only betw those equal
+    return permutations

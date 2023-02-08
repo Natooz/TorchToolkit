@@ -1,7 +1,8 @@
 # TorchToolkit
 
 [![PyPI version fury.io](https://badge.fury.io/py/torchtoolkit.svg)](https://pypi.python.org/pypi/torchtoolkit/)
-[![GitHub workflow](https://img.shields.io/github/workflow/status/Natooz/MidiTok/Testing)](https://github.com/Natooz/TorchToolkit/actions)
+[![Python 3.8](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/release/)
+![GitHub CI](https://github.com/Natooz/TorchToolkit/actions/workflows/pytest.yml/badge.svg)
 [![GitHub license](https://img.shields.io/github/license/Natooz/MidiTok.svg)](https://github.com/Natooz/TorchToolkit/blob/main/LICENSE)
 
 Hi 👋, this is a small Python package containing useful functions to use with PyTorch.

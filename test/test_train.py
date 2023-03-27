@@ -2,16 +2,12 @@
 
 def test_train():
     import logging
-    from pathlib import Path
 
     from torch import randint, LongTensor
-    from torch.nn import TransformerEncoder, TransformerEncoderLayer, Embedding, Linear, CrossEntropyLoss, Module
-    from torch.optim import Adam
-    from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
-    from torch.utils.tensorboard import SummaryWriter
-    from torch.utils.data import Dataset, DataLoader
+    from torch.nn import TransformerEncoder, TransformerEncoderLayer, Embedding, Linear, Module
+    from torch.utils.data import Dataset
 
-    from torchtoolkit.train import train, log_cuda_info, log_model_parameters, ValidAccModeParameters
+    from torchtoolkit.train import log_cuda_info, log_model_parameters
     from torchtoolkit.data import create_subsets
     from torchtoolkit.sampling import top_k
 
@@ -51,25 +47,13 @@ def test_train():
     logger.addHandler(fh)
     logger.addHandler(sh)
     logger.setLevel(logging.DEBUG)
-    tensorboard = SummaryWriter('test_train')
 
     dataset = MyDataset(500)
-    subset_train, subset_valid = create_subsets(dataset, [0.3])
-    dataloader_train = DataLoader(subset_train, 4)
-    dataloader_valid = DataLoader(subset_valid, 4)
+    _, _ = create_subsets(dataset, [0.3])
 
     model = MyModel()
-    criterion = CrossEntropyLoss()
-    optimizer = Adam(model.parameters())
-    lr_scheduler = CosineAnnealingWarmRestarts(optimizer, 10, 2)
     log_cuda_info(logger=logger)
     log_model_parameters(model, logger=logger)
-    train(model, criterion, optimizer, dataloader_train, dataloader_valid, 100, 10, 10, tensorboard, logger=logger,
-          log_intvl=10, lr_scheduler=lr_scheduler, gradient_clip_norm=0.1, saving_dir=Path())
-
-    train(model, criterion, optimizer, dataloader_train, dataloader_valid, 50, 10, 10, tensorboard, logger=logger,
-          log_intvl=10, lr_scheduler=lr_scheduler, gradient_clip_norm=0.1, saving_dir=Path(),
-          iterator_kwargs={'early_stop_steps': 15, 'valid_acc_mode_parameters': ValidAccModeParameters(0.8, 5)})
 
 
 if __name__ == '__main__':

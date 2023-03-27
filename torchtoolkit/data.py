@@ -1,6 +1,11 @@
-from typing import List, Tuple
+"""
+Methods for PyTorch Datasets / Subsets, and DataLoader collators working with Hugging Face models.
+"""
 
-from torch import Tensor, stack
+
+from typing import Any, Dict, List, Tuple, Union
+
+import torch
 from torch.utils.data import Dataset, Subset, random_split
 
 
@@ -21,12 +26,119 @@ def create_subsets(dataset: Dataset, split_ratio: List[float]) -> List[Subset]:
     return subsets
 
 
-def collate_ar(batch: List[Tensor]) -> Tuple[Tensor, Tensor]:
-    r"""A collate function for PyTorch DataLoaders, for auto-regressive tasks.
-    This will create an input and expected output (target) sequences, the latter being the former shifted by one.
+class DataCollatorClassification:
+    def __init__(self, pad_token: int):
+        """Collator for classification.
+        Input_ids will be padded with the pad token given.
 
-    :param batch: batch as a list of Tensors
-    :return: the input and expected output (target) sequences, both of shape (N,T)
-    """
-    batch = stack(batch)
-    return batch[..., :-1], batch[..., 1:]
+        :param pad_token: pas token
+        """
+        self.pad_token = pad_token
+
+    def __call__(self, examples: List[Dict[str, Any]], return_tensors=None) -> Dict[str, torch.LongTensor]:
+        x, y = _collate_cla(examples, self.pad_token)
+        attention_mask = (x != self.pad_token).int()
+        return {"input_ids": x, "labels": y, "attention_mask": attention_mask}
+
+
+class DataCollatorContrastive:
+    def __init__(self, pad_token: int):
+        """Collator for contrastive learning.
+        The batch will be passed twice through the model.
+        The labels are ranks (arange()).
+
+        :param pad_token: pas token
+        """
+        self.pad_token = pad_token
+
+    def __call__(self, batch: List[Dict[str, Any]], return_tensors=None) -> Dict[str, torch.LongTensor]:
+        x = _pad_batch(batch, self.pad_token)  # (N,T)
+        attention_mask = (x != self.pad_token).int()
+        return {"input_ids": x, "labels": torch.arange(x.size(0)).long(), "attention_mask": attention_mask}  # rank
+
+
+class DataCollatorGen:
+    def __init__(self, pad_token: int, pad_on_left: bool = False, shift_labels: bool = False):
+        """Collator that simply pad the input sequences.
+        Input_ids will be padded with the pad token given, while labels will be
+        padded with -100.
+
+        :param pad_token: pas token
+        """
+        self.pad_token = pad_token
+        self.pad_on_left = pad_on_left
+        self.shift_labels = shift_labels
+
+    def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.LongTensor]:
+        pad_on_left = batch[0]["pad_on_left"] if "pad_on_left" in batch[0] else self.pad_on_left
+        x, y = _pad_batch(batch, self.pad_token, pad_on_left), _pad_batch(batch, -100, pad_on_left)
+        # causal attention mask handled in model
+        if self.shift_labels:  # otherwise it's handled in model such as GPT2LMHead
+            x = x[:-1]
+            y = y[1:]
+
+        return {"input_ids": x, "labels": y}
+
+
+def _add_bos_eos_tokens_to_batch(
+        batch: List[Dict[str, torch.LongTensor]],
+        dict_key: str = "input_ids",
+        bos_tok: int = None,
+        eos_tok: int = None
+):
+    if bos_tok is None and eos_tok is None:
+        return
+
+    for i in range(len(batch)):
+        if bos_tok is not None and eos_tok is not None:
+            batch[i][dict_key] = torch.cat([torch.LongTensor([bos_tok]),
+                                            batch[i][dict_key],
+                                            torch.LongTensor([eos_tok])]).long()
+        elif bos_tok is not None:
+            batch[i][dict_key] = torch.cat([torch.LongTensor([bos_tok]), batch[i][dict_key]]).long()
+        else:  # EOS not None
+            batch[i][dict_key] = torch.cat([batch[i][dict_key], torch.LongTensor([eos_tok])]).long()
+
+
+def _pad_batch(
+        batch: List[Dict[str, torch.LongTensor]],
+        pad_token: int,
+        dict_key: str = "input_ids",
+        pad_on_left: bool = False
+) -> torch.LongTensor:
+    """Collate `examples` into a batch, using the information in `tokenizer` for padding if necessary."""
+
+    length_of_first = batch[0][dict_key].size(0)
+
+    # Check if padding is necessary.
+    are_tensors_same_length = all(x[dict_key].size(0) == length_of_first for x in batch)
+    if are_tensors_same_length:
+        return torch.stack([e[dict_key] for e in batch], dim=0).long()
+
+    # Creating the full tensor and filling it with our data.
+    if pad_on_left:
+        return pad_left([e[dict_key] for e in batch], pad_token)
+    else:
+        return torch.nn.utils.rnn.pad_sequence(
+            [e[dict_key] for e in batch],
+            batch_first=True,
+            padding_value=pad_token
+        ).long()
+
+
+def pad_left(batch: List[torch.LongTensor], pad_token: int) -> torch.LongTensor:
+    # Here the sequences are padded to the left, so that the last token along the time dimension
+    # is always the last token of each seq, allowing to efficiently generate by batch
+    batch = [torch.flip(seq, dims=(0,)) for seq in batch]
+    batch = torch.nn.utils.rnn.pad_sequence(batch, batch_first=True, padding_value=pad_token)  # (N,T)
+    batch = torch.flip(batch, dims=(1,)).long()
+    return batch
+
+
+def _collate_cla(
+        batch: List[Dict[str, Union[torch.LongTensor, int]]],
+        pad_tok: int
+) -> Tuple[torch.LongTensor, torch.LongTensor]:
+    x = _pad_batch(batch, pad_tok)
+    y = torch.LongTensor([d["labels"] for d in batch])
+    return x, y  # (N,T) and (N)

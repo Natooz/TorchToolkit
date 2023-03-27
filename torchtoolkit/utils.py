@@ -96,7 +96,7 @@ def convert_idx_tensor(idx: Tensor) -> List[Tensor]:
 def full_randperm(nb_permut: int) -> Tensor:
     """Returns random permutations, as with torch.randperm, but making sure that
     all indices are moved.
-    As for PyTorch v1.13, randperm can return permutations with indices no permuting,
+    As for PyTorch v1.13, randperm can return permutations with indices not permuting,
     i.e. where permutations == torch.arange(len(permutations)) has True values.
 
     :param nb_permut: number of permutations
